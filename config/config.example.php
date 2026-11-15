@@ -4,7 +4,7 @@
  * File config.php tidak boleh diunggah ke repositori publik.
  */
 return [
-    'app_name' => 'SmartCity Attendance',
+    'app_name' => 'Absensi Sekolah',
 
     // Kosongkan agar alamat terdeteksi otomatis.
     // Isi jika aplikasi berada di balik proxy, mis. 'https://presensi.kampus.ac.id'
@@ -37,7 +37,7 @@ return [
         'sqlite_path' => __DIR__ . '/../storage/database.sqlite',
     ],
 
-    'session_name' => 'sca_session',
+    'session_name' => 'absensi_session',
 
     // Kontak panitia yang tampil di halaman event (opsional)
     'contact_phone' => '',

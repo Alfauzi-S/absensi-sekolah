@@ -3,14 +3,19 @@ declare(strict_types=1);
 
 namespace App\Services;
 
-use App\Models\Event;
-use App\Models\Participant;
-use App\Models\ParticipantOptions;
+use App\Core\Auth;
+use App\Models\AcademicYear;
+use App\Models\Master;
+use App\Models\SchoolClass;
+use App\Models\Student;
 use App\Models\User;
 
 final class Validator
 {
-    /** Normalisasi nomor HP: 62xxx → 08xxx, hapus spasi dan tanda hubung. */
+    private const DATE = '/^\d{4}-\d{2}-\d{2}$/';
+    private const TIME = '/^([01]\d|2[0-3]):[0-5]\d$/';
+
+    /** Normalisasi nomor HP: 62xxx / +62xxx → 08xxx, hapus spasi dan tanda hubung. */
     public static function normalizePhone(string $phone): string
     {
         $p = preg_replace('/[^0-9+]/', '', $phone) ?? '';
@@ -22,109 +27,146 @@ final class Validator
         return $p;
     }
 
-    /** Validasi 6 kolom wajib registrasi. */
-    public static function registration(array $d, int $eventId, int $exceptId = 0): array
+    public static function validDate(string $d): bool
+    {
+        return (bool) preg_match(self::DATE, $d) && checkdate((int) substr($d, 5, 2), (int) substr($d, 8, 2), (int) substr($d, 0, 4));
+    }
+
+    public static function student(array $d, int $exceptId = 0): array
     {
         $e = [];
-        if ($d['identity_number'] === '') {
-            $e['identity_number'] = t('Nomor identitas wajib diisi.');
-        } elseif (!preg_match('/^\d{8,18}$/', $d['identity_number'])) {
-            $e['identity_number'] = t('Gunakan 8–18 digit angka tanpa spasi.');
-        } elseif (Participant::identityTaken($eventId, $d['identity_number'], $exceptId)) {
-            $e['identity_number'] = $exceptId
-                ? t('Nomor identitas ini sudah dipakai peserta lain di event yang sama.')
-                : t('Nomor identitas ini sudah terdaftar di event ini. Buka QR dari tautan yang Anda simpan atau hubungi panitia.');
+        $nis = trim($d['nis']);
+        if ($nis === '') {
+            $e['nis'] = t('NIS wajib diisi.');
+        } elseif (!preg_match('/^[A-Za-z0-9.\-\/]{3,30}$/', $nis)) {
+            $e['nis'] = t('NIS 3–30 karakter: huruf, angka, titik, strip, atau garis miring.');
+        } elseif (Student::nisTaken($nis, $exceptId)) {
+            $e['nis'] = t('NIS sudah dipakai siswa lain.');
         }
-        if (!ParticipantOptions::valid($d['profession'], ParticipantOptions::professions(), ParticipantOptions::PROFESSION_MAX)) {
-            $e['profession'] = t('Pilih profesi atau pekerjaan.');
+        $nisn = trim((string) ($d['nisn'] ?? ''));
+        if ($nisn !== '' && !preg_match('/^\d{10}$/', $nisn)) {
+            $e['nisn'] = t('NISN terdiri dari 10 digit angka.');
         }
-        if (mb_strlen($d['full_name']) < 3) {
+        $name = trim($d['full_name']);
+        if (mb_strlen($name) < 3) {
             $e['full_name'] = t('Tulis nama lengkap, minimal 3 huruf.');
-        } elseif (mb_strlen($d['full_name']) > 160) {
-            $e['full_name'] = t('Nama terlalu panjang (maksimal 160 karakter).');
+        } elseif (mb_strlen($name) > 120) {
+            $e['full_name'] = t('Nama terlalu panjang (maksimal 120 karakter).');
         }
-        if ($d['phone'] === '') {
-            $e['phone'] = t('Nomor WhatsApp wajib diisi.');
-        } elseif (!preg_match('/^08\d{8,12}$/', $d['phone'])) {
-            $e['phone'] = t('Format nomor belum benar. Contoh: 081234567890.');
+        if (!isset(Student::GENDERS[$d['gender'] ?? ''])) {
+            $e['gender'] = t('Pilih jenis kelamin (L/P).');
         }
-        if ($d['institution'] === '') {
-            $e['institution'] = t('Isi nama institusi atau organisasi.');
-        } elseif (mb_strlen($d['institution']) > 160) {
-            $e['institution'] = t('Maksimal 160 karakter.');
+        if (($d['birth_date'] ?? '') !== '' && !self::validDate($d['birth_date'])) {
+            $e['birth_date'] = t('Format tanggal lahir tidak valid (TTTT-BB-HH).');
         }
-        if (!ParticipantOptions::valid($d['field_of_study'], ParticipantOptions::fields(), ParticipantOptions::FIELD_MAX)) {
-            $e['field_of_study'] = t('Pilih program studi atau bidang studi.');
+        $phone = trim((string) ($d['parent_phone'] ?? ''));
+        if ($phone !== '' && !preg_match('/^08\d{8,12}$/', $phone)) {
+            $e['parent_phone'] = t('Format nomor HP belum benar. Contoh: 081234567890.');
         }
-        return $e;
-    }
-
-    public static function event(array $d): array
-    {
-        $e = [];
-        $time = '/^([01]\d|2[0-3]):[0-5]\d$/';
-        $date = '/^\d{4}-\d{2}-\d{2}$/';
-        if ($d['name'] === '') {
-            $e['name'] = t('Nama event wajib diisi.');
-        }
-        if ($d['organizer'] === '') {
-            $e['organizer'] = t('Penyelenggara wajib diisi.');
-        }
-        if ($d['location'] === '') {
-            $e['location'] = t('Lokasi wajib diisi.');
-        }
-        if (!preg_match($date, $d['event_date'])) {
-            $e['event_date'] = t('Pilih tanggal event.');
-        }
-        foreach (['start_time' => 'jam mulai', 'end_time' => 'jam selesai', 'att_start' => 'waktu mulai presensi', 'att_end' => 'waktu selesai presensi'] as $k => $label) {
-            if ($k === 'end_time' && $d[$k] === '') {
-                continue; // jam selesai boleh kosong: acara "sampai selesai"
-            }
-            if (!preg_match($time, $d[$k])) {
-                $e[$k] = t('Isi :label (format JJ:MM).', ['label' => t($label)]);
-            }
-        }
-        if ($d['end_time'] !== '' && !isset($e['end_time']) && !isset($e['start_time']) && $d['end_time'] <= $d['start_time']) {
-            $e['end_time'] = t('Harus setelah jam mulai.');
-        }
-        if (!isset($e['att_end']) && !isset($e['att_start']) && $d['att_end'] <= $d['att_start']) {
-            $e['att_end'] = t('Harus setelah waktu mulai presensi.');
-        }
-        foreach (['reg_start', 'reg_end'] as $k) {
-            if ($d[$k] !== null && !preg_match($date, $d[$k])) {
-                $e[$k] = t('Format tanggal tidak valid.');
-            }
-        }
-        if ($d['reg_start'] && $d['reg_end'] && $d['reg_end'] < $d['reg_start']) {
-            $e['reg_end'] = t('Tanggal tutup harus setelah tanggal buka.');
-        }
-        if ($d['reg_end'] && !isset($e['event_date']) && $d['reg_end'] > $d['event_date']) {
-            $e['reg_end'] = t('Registrasi harus ditutup paling lambat pada hari event.');
-        }
-        if (array_key_exists('quota', $d) && $d['quota'] !== null && (!ctype_digit($d['quota']) || (int) $d['quota'] < 1 || (int) $d['quota'] > 100000)) {
-            $e['quota'] = t('Kuota berupa angka 1–100000, atau kosongkan bila tanpa batas.');
-        }
-        if (!empty($d['reg_end_time'])) {
-            if (!preg_match($time, $d['reg_end_time'])) {
-                $e['reg_end_time'] = t('Format jam tidak valid (JJ:MM).');
-            } elseif (!$d['reg_end']) {
-                $e['reg_end_time'] = t('Isi tanggal registrasi ditutup terlebih dahulu.');
-            }
-        }
-        if (!in_array($d['status'], Event::STATUSES, true)) {
-            $e['status'] = t('Pilih status event.');
-        }
-        if (!in_array($d['reg_status'], Event::REG_STATUSES, true)) {
-            $e['reg_status'] = t('Pilih status registrasi.');
+        if (!in_array($d['status'] ?? 'Aktif', Student::STATUSES, true)) {
+            $e['status'] = t('Pilih status siswa.');
         }
         return $e;
     }
 
-    public static function account(array $d, bool $isNew = true): array
+    public static function schoolClass(array $d, int $exceptId = 0): array
     {
         $e = [];
-        if (mb_strlen($d['name']) < 3) {
-            $e['name'] = t('Nama petugas wajib diisi.');
+        $name = trim($d['name']);
+        if ($name === '' || mb_strlen($name) > 30) {
+            $e['name'] = t('Nama kelas wajib diisi (maksimal 30 karakter).');
+        } elseif (SchoolClass::nameTaken((int) $d['academic_year_id'], $name, $exceptId)) {
+            $e['name'] = t('Nama kelas sudah ada di tahun ajaran ini.');
+        }
+        if (!ctype_digit((string) $d['grade']) || (int) $d['grade'] < 1 || (int) $d['grade'] > 13) {
+            $e['grade'] = t('Tingkat berupa angka 1–13 (SMA: 10, 11, 12).');
+        }
+        if (!AcademicYear::find((int) $d['academic_year_id'])) {
+            $e['academic_year_id'] = t('Tahun ajaran tidak ditemukan.');
+        }
+        if ($d['homeroom_teacher_id']) {
+            $u = User::find((int) $d['homeroom_teacher_id']);
+            if (!$u || $u['role'] !== Auth::GURU) {
+                $e['homeroom_teacher_id'] = t('Wali kelas harus akun berperan Guru.');
+            }
+        }
+        if ($d['room_id'] && !Master::find('ruangan', (int) $d['room_id'])) {
+            $e['room_id'] = t('Ruangan tidak ditemukan.');
+        }
+        return $e;
+    }
+
+    public static function academicYear(array $d, int $exceptId = 0): array
+    {
+        $e = [];
+        if (!preg_match('#^\d{4}/\d{4}$#', $d['name'])) {
+            $e['name'] = t('Format nama: 2026/2027.');
+        } elseif (AcademicYear::nameTaken($d['name'], $exceptId)) {
+            $e['name'] = t('Tahun ajaran ini sudah ada.');
+        }
+        self::dateRange($e, $d);
+        return $e;
+    }
+
+    public static function semester(array $d): array
+    {
+        $e = [];
+        if (!in_array($d['name'], ['Ganjil', 'Genap'], true)) {
+            $e['name'] = t('Pilih Ganjil atau Genap.');
+        }
+        self::dateRange($e, $d);
+        return $e;
+    }
+
+    private static function dateRange(array &$e, array $d): void
+    {
+        if (!self::validDate($d['start_date'] ?? '')) {
+            $e['start_date'] = t('Tanggal mulai tidak valid.');
+        }
+        if (!self::validDate($d['end_date'] ?? '')) {
+            $e['end_date'] = t('Tanggal selesai tidak valid.');
+        } elseif (!isset($e['start_date']) && $d['end_date'] <= $d['start_date']) {
+            $e['end_date'] = t('Tanggal selesai harus setelah tanggal mulai.');
+        }
+    }
+
+    public static function schedule(array $d, array $periods): array
+    {
+        $e = [];
+        if (!ctype_digit((string) $d['day_of_week']) || (int) $d['day_of_week'] < 1 || (int) $d['day_of_week'] > 7) {
+            $e['day_of_week'] = t('Pilih hari.');
+        }
+        foreach (['period_start' => 'Jam mulai', 'period_end' => 'Jam selesai'] as $k => $label) {
+            if (!ctype_digit((string) $d[$k]) || !isset($periods[(int) $d[$k]])) {
+                $e[$k] = t(':field harus salah satu jam pelajaran yang terdaftar.', ['field' => t($label)]);
+            }
+        }
+        if (!isset($e['period_start'], $e['period_end']) && (int) $d['period_end'] < (int) $d['period_start']) {
+            $e['period_end'] = t('Jam selesai tidak boleh sebelum jam mulai.');
+        }
+        if (!Master::find('mapel', (int) $d['subject_id'])) {
+            $e['subject_id'] = t('Pilih mata pelajaran.');
+        }
+        if (!empty($d['teacher_id'])) {
+            $u = User::find((int) $d['teacher_id']);
+            if (!$u || $u['role'] !== Auth::GURU) {
+                $e['teacher_id'] = t('Pengampu harus akun berperan Guru.');
+            }
+        }
+        if (!empty($d['room_id']) && !Master::find('ruangan', (int) $d['room_id'])) {
+            $e['room_id'] = t('Ruangan tidak ditemukan.');
+        }
+        return $e;
+    }
+
+    public static function account(array $d, bool $isNew = true, int $exceptId = 0): array
+    {
+        $e = [];
+        if (mb_strlen(trim($d['name'])) < 3) {
+            $e['name'] = t('Nama wajib diisi, minimal 3 huruf.');
+        }
+        if (!in_array($d['role'], Auth::ROLES, true)) {
+            $e['role'] = t('Pilih peran akun.');
         }
         if ($isNew) {
             if (!preg_match('/^[a-z0-9.]{4,40}$/', $d['username'])) {
@@ -136,10 +178,15 @@ final class Validator
                 $e['password'] = t('Password sementara minimal 8 karakter.');
             }
         }
-        if ($d['event_id'] && !Event::find((int) $d['event_id'])) {
-            $e['event_id'] = t('Event tidak ditemukan.');
+        $nip = trim((string) ($d['nip'] ?? ''));
+        if ($nip !== '' && !preg_match('/^[0-9]{8,30}$/', $nip)) {
+            $e['nip'] = t('NIP/NUPTK berupa 8–30 digit angka.');
         }
-        if (!in_array($d['status'], ['Aktif', 'Nonaktif'], true)) {
+        $phone = trim((string) ($d['phone'] ?? ''));
+        if ($phone !== '' && !preg_match('/^08\d{8,12}$/', $phone)) {
+            $e['phone'] = t('Format nomor HP belum benar. Contoh: 081234567890.');
+        }
+        if (!in_array($d['status'] ?? 'Aktif', ['Aktif', 'Nonaktif'], true)) {
             $e['status'] = t('Pilih status akun.');
         }
         return $e;
@@ -157,5 +204,41 @@ final class Validator
             return t('Konfirmasi password tidak sama.');
         }
         return null;
+    }
+
+    /** Pengaturan sekolah (PRD 4.3). */
+    public static function settings(array $d): array
+    {
+        $e = [];
+        if (!isset(\App\Models\Setting::ATT_MODES[$d['attendance_mode']])) {
+            $e['attendance_mode'] = t('Pilih mode absensi.');
+        }
+        if (!isset(\App\Models\Setting::SCANNER_MODES[$d['scanner_mode']])) {
+            $e['scanner_mode'] = t('Pilih jenis perangkat scanner.');
+        }
+        if (!isset(\App\Models\Setting::WA_MODES[$d['wa_notify']])) {
+            $e['wa_notify'] = t('Pilih mode notifikasi.');
+        }
+        foreach (['checkin_start', 'checkin_end', 'late_after', 'checkout_start', 'checkout_end'] as $k) {
+            if (!preg_match(self::TIME, $d[$k])) {
+                $e[$k] = t('Format jam JJ:MM.');
+            }
+        }
+        if (!isset($e['checkin_start'], $e['checkin_end']) && $d['checkin_end'] <= $d['checkin_start']) {
+            $e['checkin_end'] = t('Harus setelah jam buka absen masuk.');
+        }
+        if (!isset($e['checkout_start'], $e['checkout_end']) && $d['checkout_end'] <= $d['checkout_start']) {
+            $e['checkout_end'] = t('Harus setelah jam buka absen pulang.');
+        }
+        if (!ctype_digit((string) $d['late_tolerance_minutes']) || (int) $d['late_tolerance_minutes'] > 120) {
+            $e['late_tolerance_minutes'] = t('Toleransi 0–120 menit.');
+        }
+        if ($d['wa_notify'] !== 'off' && !filter_var($d['wa_gateway_url'], FILTER_VALIDATE_URL)) {
+            $e['wa_gateway_url'] = t('Isi URL gateway WhatsApp bila notifikasi dinyalakan.');
+        }
+        if (mb_strlen($d['school_name']) > 120) {
+            $e['school_name'] = t('Maksimal 120 karakter.');
+        }
+        return $e;
     }
 }
