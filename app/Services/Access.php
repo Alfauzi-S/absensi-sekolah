@@ -25,17 +25,11 @@ final class Access
         'status' => 'Mengubah status kehadiran manual',
         'attendance' => 'Memindai QR / memproses presensi',
         'reports' => 'Melihat laporan, riwayat, dan mengekspor',
-        'cert_manage' => 'Mengelola template, variabel, nomor, dan generate sertifikat',
-        'cert_publish' => 'Memublikasikan sertifikat',
-        'cert_revoke' => 'Mencabut dan menerbitkan ulang sertifikat',
         'audit' => 'Melihat audit log event',
     ];
 
-    /** Kebijakan awal: semua izin operasional, kecuali publikasi dan pencabutan sertifikat. */
-    public const DEFAULT_PERMS = ['event_edit', 'participants', 'status', 'attendance', 'reports', 'cert_manage', 'audit'];
-
-    /** Pseudo-izin: salah satu izin sertifikat (untuk membuka menu Sertifikat). */
-    public const CERT_ANY = 'cert_any';
+    /** Kebijakan awal: semua izin operasional. */
+    public const DEFAULT_PERMS = ['event_edit', 'participants', 'status', 'attendance', 'reports', 'audit'];
 
     /** @var array<int, array<int, string[]>> */
     private static array $cache = [];
@@ -73,8 +67,7 @@ final class Access
             Auth::SUPER => null,
             Auth::EVENT => array_keys(array_filter(
                 self::assignments((int) $user['id']),
-                static fn (array $perms) => $perm === null
-                    || ($perm === self::CERT_ANY ? (bool) array_intersect(['cert_manage', 'cert_publish', 'cert_revoke'], $perms) : in_array($perm, $perms, true))
+                static fn (array $perms) => $perm === null || in_array($perm, $perms, true)
             )),
             Auth::ADMIN => ($perm === null || $perm === 'attendance') && $user['event_id'] ? [(int) $user['event_id']] : [],
             default => [],

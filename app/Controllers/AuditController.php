@@ -10,7 +10,7 @@ use App\Services\Access;
 final class AuditController extends Controller
 {
     private const PER_PAGE = 40;
-    public const GROUPS = ['' => 'Semua', 'assignment.' => 'Penugasan', 'event.' => 'Event', 'participant.' => 'Peserta', 'cert.' => 'Sertifikat', 'access.' => 'Akses ditolak', 'account.' => 'Akun'];
+    public const GROUPS = ['' => 'Semua', 'assignment.' => 'Penugasan', 'event.' => 'Event', 'participant.' => 'Peserta', 'access.' => 'Akses ditolak', 'account.' => 'Akun'];
 
     public function index(): void
     {

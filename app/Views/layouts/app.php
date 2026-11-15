@@ -14,13 +14,12 @@ if ($isManager) {
         can('participants') ? ['participants', 'admin/peserta', 'users', 'Peserta'] : null,
         can('reports') ? ['reports', 'admin/laporan', 'chart', 'Laporan'] : null,
         can('reports') ? ['history', 'admin/riwayat', 'history', 'Riwayat'] : null,
-        can('cert_any') ? ['certificates', 'admin/sertifikat', 'award', 'Sertifikat'] : null,
         $isSuper ? ['accounts', 'admin/akun', 'shield', 'Akun Admin'] : null,
         can('audit') ? ['audit', 'admin/audit', 'file', 'Audit Log'] : null,
         can('attendance') ? ['scan', 'petugas/scan', 'scan', 'Scan QR'] : null,
         ['settings', 'admin/pengaturan', 'sliders', 'Pengaturan'],
     ]));
-    $bottomKeys = ['dashboard', 'events', 'participants', 'certificates'];
+    $bottomKeys = ['dashboard', 'events', 'participants', 'reports'];
     $bottom = array_values(array_filter($nav, static fn ($n) => in_array($n[0], $bottomKeys, true)));
     $bottom = array_map(static fn ($n) => $n[0] === 'dashboard' ? ['dashboard', 'admin', 'grid', 'Beranda'] : $n, $bottom);
     $more = array_values(array_filter($nav, static fn ($n) => !in_array($n[0], $bottomKeys, true)));

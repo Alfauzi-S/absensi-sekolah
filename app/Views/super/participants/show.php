@@ -73,12 +73,6 @@ $preset = in_array($openStatus, ['hadir', 'tidak'], true) ? $openStatus : '';
 <?php if (Access::can($user, (int) $p['event_id'], 'participants')): ?>
 <div class="card">
   <div class="card-h"><h3><?= e(t('Hapus peserta')) ?></h3></div>
-  <?php if (!empty($hasCert)): ?>
-    <p class="small muted"><?= e(t('Peserta ini sudah memiliki sertifikat sehingga tidak dapat dihapus. Data sertifikat disimpan untuk keperluan verifikasi.')) ?></p>
-  <?php else: ?>
-    <p class="small muted"><?= e(t('Gunakan untuk peserta yang salah mendaftar atau duplikat. Data peserta, tiket QR, dan riwayat statusnya akan dihapus permanen; audit log tetap tersimpan.')) ?></p>
-    <div><?= post_button('admin/peserta/' . $p['id'] . '/hapus', t('Hapus peserta'), [], 'btn btn-danger sm', t('Hapus peserta ":name"? Data peserta, tiket QR, dan riwayat statusnya akan dihapus permanen. Tindakan ini tidak dapat dibatalkan.', ['name' => $p['full_name']]), 'trash') ?></div>
-  <?php endif; ?>
 </div>
 <?php endif; ?>
 

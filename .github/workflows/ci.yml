@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    name: Lint PHP
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_sqlite, gd, zip
+      - name: php -l semua file
+        run: |
+          set -e
+          find app bin config docker public tests -name '*.php' -print0 | xargs -0 -n1 -P4 php -l > /dev/null
+          echo "lint ok"
+
+  test:
+    name: PHPUnit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_sqlite, gd, zip
+          tools: phpunit:10
+      - run: phpunit
+
+  smoke:
+    name: Smoke test (SQLite)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_sqlite, gd, zip
+      - run: bash tests/smoke.sh
+
+  docker:
+    name: Build image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/php/Dockerfile
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

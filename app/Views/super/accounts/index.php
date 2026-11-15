@@ -1,6 +1,6 @@
 <?php use App\Core\Auth; ?>
 <div class="pagehead">
-  <div><h2><?= e(t('Akun Admin')) ?></h2><p><?= e(t('Admin Presensi memindai QR di lokasi. Admin Event mengelola event yang ditugaskan, termasuk sertifikat, sesuai izin yang Anda berikan.')) ?></p></div>
+  <div><h2><?= e(t('Akun Admin')) ?></h2><p><?= e(t('Admin Presensi memindai QR di lokasi. Admin Event mengelola event yang ditugaskan sesuai izin yang Anda berikan.')) ?></p></div>
   <div class="row">
     <a class="btn btn-outline" href="<?= e(url('admin/akun/baru', ['peran' => Auth::ADMIN])) ?>"><?= icon('userplus', 18) ?><?= e(t('Admin Presensi')) ?></a>
     <?php if ($migrated): ?><a class="btn btn-primary" href="<?= e(url('admin/akun/baru', ['peran' => Auth::EVENT])) ?>"><?= icon('userplus', 18) ?><?= e(t('Admin Event')) ?></a><?php endif; ?>
