@@ -10,23 +10,41 @@ final class AuditLog
 {
     public const LABELS = [
         'access.denied' => 'Akses ditolak',
+        'auth.login' => 'Login berhasil',
+        'auth.login_failed' => 'Login gagal',
         'account.create' => 'Akun dibuat',
         'account.update' => 'Akun diubah',
         'account.status' => 'Status akun diubah',
         'account.reset_password' => 'Password sementara dibuat ulang',
-        'assignment.add' => 'Penugasan event ditambahkan',
-        'assignment.update' => 'Izin penugasan diubah',
-        'assignment.remove' => 'Penugasan event dicabut',
-        'event.create' => 'Event dibuat',
-        'event.update' => 'Informasi event diubah',
-        'event.setting' => 'Pengaturan event diubah',
-        'event.delete' => 'Event dihapus',
-        'participant.update' => 'Data peserta diubah',
-        'participant.status' => 'Status kehadiran diubah manual',
-        'participant.delete' => 'Peserta dihapus',
-        'report.export' => 'Laporan diekspor',
+        'settings.update' => 'Pengaturan sekolah diubah',
+        'year.create' => 'Tahun ajaran dibuat',
+        'year.update' => 'Tahun ajaran diubah',
+        'year.activate' => 'Tahun ajaran diaktifkan',
+        'year.delete' => 'Tahun ajaran dihapus',
+        'semester.create' => 'Semester dibuat',
+        'semester.activate' => 'Semester diaktifkan',
+        'semester.delete' => 'Semester dihapus',
+        'class.create' => 'Kelas dibuat',
+        'class.update' => 'Kelas diubah',
+        'class.delete' => 'Kelas dihapus',
+        'class.member_add' => 'Siswa dimasukkan ke kelas',
+        'class.member_remove' => 'Siswa dikeluarkan dari kelas',
+        'student.create' => 'Siswa ditambahkan',
+        'student.update' => 'Data siswa diubah',
+        'student.delete' => 'Siswa dihapus',
+        'student.import' => 'Impor siswa',
+        'master.create' => 'Data master ditambahkan',
+        'master.update' => 'Data master diubah',
+        'master.delete' => 'Data master dihapus',
+        'schedule.create' => 'Jadwal ditambahkan',
+        'schedule.update' => 'Jadwal diubah',
+        'schedule.delete' => 'Jadwal dihapus',
+        'schedule.import' => 'Impor jadwal',
         'system.migrate' => 'Migrasi database dijalankan',
     ];
+
+    public const GROUPS = ['' => 'Semua', 'access.' => 'Akses ditolak', 'auth.' => 'Login', 'account.' => 'Akun', 'settings.' => 'Pengaturan',
+        'student.' => 'Siswa', 'class.' => 'Kelas', 'schedule.' => 'Jadwal', 'master.' => 'Data master', 'year.' => 'Tahun ajaran'];
 
     public static function label(string $action): string
     {
@@ -35,7 +53,7 @@ final class AuditLog
 
     private const SECRET_KEYS = '/pass|token|secret|hash|csrf|cookie|session/i';
 
-    public static function add(?array $user, string $action, ?int $eventId = null, ?string $objectType = null, mixed $objectId = null, array $meta = [], string $result = 'ok'): void
+    public static function add(?array $user, string $action, ?int $classId = null, ?string $objectType = null, mixed $objectId = null, array $meta = [], string $result = 'ok'): void
     {
         if (!DB::tableExists('audit_logs')) {
             return;
@@ -45,7 +63,7 @@ final class AuditLog
                 'user_id' => $user ? (int) $user['id'] : null,
                 'username' => $user['username'] ?? null,
                 'role' => $user['role'] ?? null,
-                'event_id' => $eventId,
+                'class_id' => $classId,
                 'action' => mb_substr($action, 0, 60),
                 'object_type' => $objectType !== null ? mb_substr($objectType, 0, 40) : null,
                 'object_id' => $objectId !== null ? mb_substr((string) $objectId, 0, 64) : null,
@@ -71,41 +89,31 @@ final class AuditLog
         return $out;
     }
 
-    /** @param int[]|null $eventIds null = semua (Super Admin) */
-    private static function where(?array $eventIds, ?int $eventId, string $prefix): array
+    private static function where(string $prefix, string $q): array
     {
         $w = ['1 = 1'];
         $p = [];
-        if ($eventIds !== null) {
-            $w[] = $eventIds ? 'event_id IN (' . implode(',', array_map('intval', $eventIds)) . ')' : '1 = 0';
-        }
-        if ($eventId) {
-            $w[] = 'event_id = ?';
-            $p[] = $eventId;
-        }
         if ($prefix !== '') {
-            $w[] = 'action LIKE ?';
+            $w[] = 'a.action LIKE ?';
             $p[] = $prefix . '%';
+        }
+        if ($q !== '') {
+            $w[] = '(a.username LIKE ? OR a.object_id LIKE ? OR a.meta LIKE ?)';
+            array_push($p, '%' . $q . '%', '%' . $q . '%', '%' . $q . '%');
         }
         return [implode(' AND ', $w), $p];
     }
 
-    public static function list(?array $eventIds, ?int $eventId = null, string $prefix = '', int $limit = 50, int $offset = 0): array
+    public static function list(string $prefix = '', string $q = '', int $limit = 50, int $offset = 0): array
     {
-        if (!DB::tableExists('audit_logs')) {
-            return [];
-        }
-        [$w, $p] = self::where($eventIds, $eventId, $prefix);
-        return DB::all('SELECT a.*, e.name AS event_name FROM audit_logs a LEFT JOIN events e ON e.id = a.event_id WHERE ' .
-            str_replace('event_id', 'a.event_id', $w) . ' ORDER BY a.id DESC LIMIT ' . max(1, $limit) . ' OFFSET ' . max(0, $offset), $p);
+        [$w, $p] = self::where($prefix, $q);
+        return DB::all('SELECT a.*, c.name AS class_name FROM audit_logs a LEFT JOIN classes c ON c.id = a.class_id WHERE ' . $w .
+            ' ORDER BY a.id DESC LIMIT ' . max(1, $limit) . ' OFFSET ' . max(0, $offset), $p);
     }
 
-    public static function count(?array $eventIds, ?int $eventId = null, string $prefix = ''): int
+    public static function count(string $prefix = '', string $q = ''): int
     {
-        if (!DB::tableExists('audit_logs')) {
-            return 0;
-        }
-        [$w, $p] = self::where($eventIds, $eventId, $prefix);
-        return (int) DB::value('SELECT COUNT(*) FROM audit_logs WHERE ' . $w, $p);
+        [$w, $p] = self::where($prefix, $q);
+        return (int) DB::value('SELECT COUNT(*) FROM audit_logs a WHERE ' . $w, $p);
     }
 }

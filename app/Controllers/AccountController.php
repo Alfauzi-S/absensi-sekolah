@@ -4,195 +4,159 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Core\Auth;
-use App\Models\Assignment;
+use App\Models\AcademicYear;
 use App\Models\AuditLog;
-use App\Models\Event;
+use App\Models\Schedule;
+use App\Models\SchoolClass;
+use App\Models\Semester;
 use App\Models\User;
 use App\Services\Access;
 use App\Services\Validator;
 
-/** Kelola akun Admin Presensi dan Admin Event, termasuk penugasan event (khusus Super Admin). */
+/** Kelola akun pengguna (khusus Super Admin): Kepala Sekolah, TU/Staff, Guru, dan Super Admin lain. */
 final class AccountController extends Controller
 {
-    private const ROLES = [Auth::ADMIN, Auth::EVENT];
-
     public function index(): void
     {
-        Auth::require(Auth::SUPER);
-        $role = in_array(query('peran'), self::ROLES, true) ? query('peran') : '';
-        $this->render('super/accounts/index', [
-            'title' => t('Akun Admin'), 'active' => 'accounts', 'role' => $role,
-            'admins' => User::admins($role ?: null),
-            'migrated' => Assignment::available(),
+        $this->allow('accounts');
+        $role = in_array(query('peran'), Auth::ROLES, true) ? query('peran') : '';
+        $q = trim(query('q'));
+        $this->render('admin/accounts/index', [
+            'title' => t('Akun Pengguna'), 'active' => 'accounts', 'role' => $role, 'q' => $q,
+            'users' => User::all($role ?: null, $q), 'counts' => User::countByRole(),
         ]);
     }
 
-    private function formView(array $d, array $errors): void
+    private function formView(array $d, array $errors, ?array $u = null): void
     {
-        $this->render('super/accounts/form', [
-            'title' => t('Buat Akun Admin'), 'active' => 'accounts', 'back' => 'admin/akun', 'd' => $d, 'errors' => $errors,
-            'events' => Event::all(), 'migrated' => Assignment::available(),
+        $this->render('admin/accounts/form', [
+            'title' => $u ? t('Ubah Akun') : t('Buat Akun'), 'active' => 'accounts', 'back' => $u ? 'admin/akun/' . $u['id'] : 'admin/akun',
+            'd' => $d, 'errors' => $errors, 'editing' => $u,
         ]);
     }
 
     public function create(): void
     {
-        Auth::require(Auth::SUPER);
-        $role = query('peran') === Auth::EVENT ? Auth::EVENT : Auth::ADMIN;
-        $this->formView(['name' => '', 'username' => '', 'password' => User::randomPassword(10), 'role' => $role,
-            'event_id' => (string) (query('ev') ?: ($_SESSION['ev'] ?? '')), 'status' => 'Aktif'], []);
+        $this->allow('accounts');
+        $role = in_array(query('peran'), Auth::ROLES, true) ? query('peran') : Auth::GURU;
+        $this->formView(['name' => '', 'username' => '', 'password' => User::randomPassword(10), 'role' => $role, 'nip' => '', 'phone' => '', 'status' => 'Aktif'], []);
+    }
+
+    private function input(): array
+    {
+        return [
+            'name' => trim(input('name')),
+            'username' => strtolower(trim(input('username'))),
+            'password' => (string) ($_POST['password'] ?? ''),
+            'role' => input('role', Auth::GURU),
+            'nip' => trim(input('nip')),
+            'phone' => Validator::normalizePhone(input('phone')),
+            'status' => input('status', 'Aktif'),
+        ];
     }
 
     public function store(): void
     {
-        $super = Auth::require(Auth::SUPER);
-        $d = [
-            'name' => input('name'),
-            'username' => strtolower(input('username')),
-            'password' => (string) ($_POST['password'] ?? ''),
-            'role' => input('role', Auth::ADMIN),
-            'event_id' => input('event_id'),
-            'status' => input('status', 'Aktif'),
-        ];
-        $errors = Validator::account($d, true);
-        if (!in_array($d['role'], self::ROLES, true)) {
-            $errors['role'] = t('Pilih peran akun.');
-        } elseif ($d['role'] === Auth::EVENT && !Assignment::available()) {
-            $errors['role'] = t('Jalankan migrasi database terlebih dahulu (menu Dashboard).');
+        $super = $this->allow('accounts');
+        $d = $this->input();
+        if ($d['username'] === '' && $d['name'] !== '') {
+            $d['username'] = User::suggestUsername($d['name']);
         }
+        $errors = Validator::account($d, true);
         if ($errors) {
             http_response_code(422);
             $this->formView($d, $errors);
             return;
         }
-        $isEvent = $d['role'] === Auth::EVENT;
-        $id = User::create(['event_id' => $isEvent ? null : $d['event_id']] + $d + ['must_change_password' => 1]);
+        $id = User::create($d + ['must_change_password' => 1]);
         AuditLog::add($super, 'account.create', null, 'user', $id, ['username' => $d['username'], 'role' => $d['role']]);
-        if ($isEvent && $d['event_id']) {
-            Assignment::save($id, (int) $d['event_id'], Access::DEFAULT_PERMS, (int) $super['id']);
-            AuditLog::add($super, 'assignment.add', (int) $d['event_id'], 'user', $id, ['username' => $d['username'], 'perms' => Access::DEFAULT_PERMS]);
-        }
         $_SESSION['new_credential'] = ['id' => $id, 'username' => $d['username'], 'password' => $d['password']];
-        flash('ok', $isEvent ? 'Akun Admin Event dibuat' : 'Akun Admin Presensi dibuat', '@' . $d['username']);
+        flash('ok', 'Akun dibuat', '@' . $d['username']);
         redirect('admin/akun/' . $id);
     }
 
-    /** Hanya akun Admin Presensi / Admin Event. Akun Super Admin tidak dikelola dari sini. */
-    private function findAdmin(string $id): array
+    private function findOr404(string $id): array
     {
-        $a = User::find((int) $id);
-        if (!$a || !in_array($a['role'], self::ROLES, true)) {
+        $u = User::find((int) $id);
+        if (!$u) {
             abort(404, 'Akun tidak ditemukan');
         }
-        return $a;
+        return $u;
     }
 
     public function show(string $id): void
     {
-        Auth::require(Auth::SUPER);
-        $a = $this->findAdmin($id);
+        $this->allow('accounts');
+        $u = $this->findOr404($id);
         $cred = $_SESSION['new_credential'] ?? null;
-        unset($_SESSION['new_credential']);
-        $this->render('super/accounts/show', [
-            'title' => t('Detail Akun Admin'),
-            'active' => 'accounts',
-            'back' => 'admin/akun',
-            'a' => $a,
-            'event' => $a['event_id'] ? Event::find((int) $a['event_id']) : null,
-            'events' => Event::all(),
-            'assignments' => $a['role'] === Auth::EVENT ? Assignment::forUser((int) $a['id']) : [],
-            'logs' => AuditLog::list(null, null, 'assignment.', 200),
-            'scans' => User::scanCount((int) $a['id']),
-            'credential' => is_array($cred) && (int) $cred['id'] === (int) $a['id'] ? $cred : null,
+        if ($cred && (int) $cred['id'] === (int) $u['id']) {
+            unset($_SESSION['new_credential']);
+        } else {
+            $cred = null;
+        }
+        $year = AcademicYear::active();
+        $sem = Semester::active();
+        $this->render('admin/accounts/show', [
+            'title' => t('Detail Akun'), 'active' => 'accounts', 'back' => 'admin/akun', 'u' => $u, 'cred' => $cred,
+            'homerooms' => $u['role'] === Auth::GURU && $year ? SchoolClass::homeroomOf((int) $u['id'], (int) $year['id']) : [],
+            'schedules' => $u['role'] === Auth::GURU && $sem ? Schedule::forTeacher((int) $sem['id'], (int) $u['id']) : [],
+            'superCount' => User::countByRole()[Auth::SUPER],
         ]);
+    }
+
+    public function edit(string $id): void
+    {
+        $this->allow('accounts');
+        $u = $this->findOr404($id);
+        $this->formView(['name' => $u['name'], 'username' => $u['username'], 'password' => '', 'role' => $u['role'], 'nip' => (string) $u['nip'], 'phone' => (string) $u['phone'], 'status' => $u['status']], [], $u);
     }
 
     public function update(string $id): void
     {
-        $super = Auth::require(Auth::SUPER);
-        $a = $this->findAdmin($id);
-        $isEvent = $a['role'] === Auth::EVENT;
-        $d = ['name' => input('name'), 'username' => $a['username'], 'password' => '', 'event_id' => $isEvent ? '' : input('event_id'), 'status' => $a['status']];
-        $errors = Validator::account($d, false);
+        $super = $this->allow('accounts');
+        $u = $this->findOr404($id);
+        $d = $this->input();
+        $d['username'] = $u['username'];
+        $errors = Validator::account($d, false, (int) $u['id']);
+        if ((int) $u['id'] === (int) $super['id'] && ($d['role'] !== Auth::SUPER || $d['status'] !== 'Aktif')) {
+            $errors['role'] = t('Anda tidak bisa menurunkan peran atau menonaktifkan akun sendiri.');
+        }
         if ($errors) {
-            flash('bad', 'Akun belum diperbarui', implode(' ', array_map(static fn ($m) => t((string) $m), $errors)));
-        } else {
-            $data = ['name' => $d['name']];
-            if (!$isEvent) {
-                $data['event_id'] = $d['event_id'] ?: null;
-            }
-            User::update((int) $a['id'], $data);
-            AuditLog::add($super, 'account.update', $isEvent ? null : ((int) $d['event_id'] ?: null), 'user', $a['id'], [
-                'username' => $a['username'], 'old_event' => $a['event_id'], 'new_event' => $data['event_id'] ?? null,
-            ]);
-            flash('ok', 'Akun diperbarui');
+            http_response_code(422);
+            $this->formView($d, $errors, $u);
+            return;
         }
-        redirect('admin/akun/' . $a['id']);
-    }
-
-    /** Tambah atau ubah penugasan event + izin untuk Admin Event. */
-    public function assign(string $id): void
-    {
-        $super = Auth::require(Auth::SUPER);
-        $a = $this->findAdmin($id);
-        if ($a['role'] !== Auth::EVENT) {
-            abort(404, 'Akun tidak ditemukan');
-        }
-        $event = Event::find((int) input('event_id'));
-        if (!$event) {
-            flash('bad', 'Penugasan gagal', 'Event tidak ditemukan.');
-            redirect('admin/akun/' . $a['id']);
-        }
-        $perms = array_values(array_filter((array) ($_POST['perms'] ?? []), 'is_string'));
-        if (input('mode') === 'add' && Assignment::find((int) $a['id'], (int) $event['id'])) {
-            flash('bad', 'Penugasan gagal', 'Akun ini sudah ditugaskan ke event tersebut. Ubah izinnya di daftar penugasan.');
-            redirect('admin/akun/' . $a['id']);
-        }
-        if (input('mode') === 'add' && !isset($_POST['perms'])) {
-            $perms = Access::DEFAULT_PERMS;
-        }
-        [$action, $old] = Assignment::save((int) $a['id'], (int) $event['id'], $perms, (int) $super['id']);
-        $new = Access::decode(json_encode($perms) ?: '[]');
-        AuditLog::add($super, 'assignment.' . $action, (int) $event['id'], 'user', $a['id'], [
-            'username' => $a['username'], 'added' => array_values(array_diff($new, $old)), 'removed' => array_values(array_diff($old, $new)),
-        ]);
-        flash('ok', $action === 'add' ? 'Penugasan ditambahkan' : 'Izin penugasan diperbarui', $event['name']);
-        redirect('admin/akun/' . $a['id']);
-    }
-
-    public function unassign(string $id, string $eventId): void
-    {
-        $super = Auth::require(Auth::SUPER);
-        $a = $this->findAdmin($id);
-        if ($a['role'] === Auth::EVENT && Assignment::remove((int) $a['id'], (int) $eventId)) {
-            AuditLog::add($super, 'assignment.remove', (int) $eventId, 'user', $a['id'], ['username' => $a['username']]);
-            flash('ok', 'Penugasan dicabut', 'Akses ke event tersebut langsung berakhir.');
-        } else {
-            flash('bad', 'Penugasan tidak ditemukan');
-        }
-        redirect('admin/akun/' . $a['id']);
+        User::update((int) $u['id'], ['name' => $d['name'], 'role' => $d['role'], 'nip' => $d['nip'] ?: null, 'phone' => $d['phone'] ?: null, 'status' => $d['status']]);
+        Access::forget();
+        AuditLog::add($super, 'account.update', null, 'user', $u['id'], ['username' => $u['username'], 'role' => $d['role'], 'status' => $d['status']]);
+        flash('ok', 'Akun diperbarui', '@' . $u['username']);
+        redirect('admin/akun/' . $u['id']);
     }
 
     public function toggle(string $id): void
     {
-        $super = Auth::require(Auth::SUPER);
-        $a = $this->findAdmin($id);
-        $new = $a['status'] === 'Aktif' ? 'Nonaktif' : 'Aktif';
-        User::update((int) $a['id'], ['status' => $new]);
-        AuditLog::add($super, 'account.status', null, 'user', $a['id'], ['username' => $a['username'], 'status' => $new]);
-        flash('ok', $new === 'Aktif' ? 'Akun diaktifkan' : 'Akun dinonaktifkan', '@' . $a['username']);
-        redirect('admin/akun/' . $a['id']);
+        $super = $this->allow('accounts');
+        $u = $this->findOr404($id);
+        if ((int) $u['id'] === (int) $super['id']) {
+            flash('bad', 'Tidak bisa menonaktifkan akun sendiri');
+            redirect('admin/akun/' . $u['id']);
+        }
+        $new = $u['status'] === 'Aktif' ? 'Nonaktif' : 'Aktif';
+        User::update((int) $u['id'], ['status' => $new]);
+        AuditLog::add($super, 'account.status', null, 'user', $u['id'], ['username' => $u['username'], 'status' => $new]);
+        flash('ok', $new === 'Aktif' ? 'Akun diaktifkan' : 'Akun dinonaktifkan', '@' . $u['username']);
+        redirect('admin/akun/' . $u['id']);
     }
 
     public function reset(string $id): void
     {
-        $super = Auth::require(Auth::SUPER);
-        $a = $this->findAdmin($id);
+        $super = $this->allow('accounts');
+        $u = $this->findOr404($id);
         $password = User::randomPassword(10);
-        User::setPassword((int) $a['id'], $password, true);
-        AuditLog::add($super, 'account.reset_password', null, 'user', $a['id'], ['username' => $a['username']]);
-        $_SESSION['new_credential'] = ['id' => (int) $a['id'], 'username' => $a['username'], 'password' => $password];
-        flash('ok', 'Password sementara baru dibuat', 'Sampaikan langsung ke petugas.');
-        redirect('admin/akun/' . $a['id']);
+        User::setPassword((int) $u['id'], $password, true);
+        AuditLog::add($super, 'account.reset_password', null, 'user', $u['id'], ['username' => $u['username']]);
+        $_SESSION['new_credential'] = ['id' => (int) $u['id'], 'username' => $u['username'], 'password' => $password];
+        flash('ok', 'Password sementara dibuat', t('Sampaikan ke pemilik akun; wajib diganti saat login.'));
+        redirect('admin/akun/' . $u['id']);
     }
 }

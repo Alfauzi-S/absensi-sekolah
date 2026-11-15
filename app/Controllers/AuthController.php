@@ -11,7 +11,7 @@ final class AuthController extends Controller
 {
     public static function homeFor(array $user): string
     {
-        return in_array($user['role'], [Auth::SUPER, Auth::EVENT], true) ? 'admin' : 'petugas';
+        return 'admin';
     }
 
     /** Halaman depan: tidak ada halaman publik, langsung ke dashboard atau halaman masuk. */
@@ -56,7 +56,7 @@ final class AuthController extends Controller
                 Auth::login($user);
                 if ((int) $user['must_change_password'] === 1) {
                     flash('info', 'Ganti password sementara Anda', 'Akun ini memakai password dari Super Admin. Buat password baru sekarang.');
-                    redirect(self::homeFor($user) === 'admin' ? 'admin/pengaturan' : 'petugas/profil');
+                    redirect('admin/pengaturan');
                 }
                 $home = self::homeFor($user);
                 $target = is_string($next) && str_starts_with(ltrim($next, '/'), $home) ? $next : $home;

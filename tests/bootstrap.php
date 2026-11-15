@@ -15,13 +15,14 @@ define('FULL_URL', 'http://localhost');
 define('APP_LANG', 'id');
 
 spl_autoload_register(static function (string $class): void {
-    $prefix = 'App\\';
-    if (strncmp($class, $prefix, strlen($prefix)) !== 0) {
-        return;
-    }
-    $file = APP_PATH . '/' . str_replace('\\', '/', substr($class, strlen($prefix))) . '.php';
-    if (is_file($file)) {
-        require $file;
+    foreach (['App\\' => APP_PATH, 'Tests\\' => __DIR__] as $prefix => $dir) {
+        if (strncmp($class, $prefix, strlen($prefix)) === 0) {
+            $file = $dir . '/' . str_replace('\\', '/', substr($class, strlen($prefix))) . '.php';
+            if (is_file($file)) {
+                require $file;
+            }
+            return;
+        }
     }
 });
 

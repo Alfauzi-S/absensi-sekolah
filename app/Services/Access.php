@@ -5,128 +5,111 @@ namespace App\Services;
 
 use App\Core\Auth;
 use App\Core\Database as DB;
-use App\Core\View;
+use App\Core\Router;
+use App\Models\AcademicYear;
 use App\Models\AuditLog;
-use App\Models\Event;
+use App\Models\Semester;
 
 /**
- * Hak akses per event (deny-by-default).
- * - Super Admin: semua event, semua izin.
- * - Admin Event: hanya event di tabel event_admin_assignments, dengan izin yang dicentang Super Admin.
- * - Admin Presensi: hanya izin 'attendance' pada event users.event_id.
- * Semua pemeriksaan memakai data database, bukan event_id/participant_id kiriman browser.
+ * Kebijakan akses (deny-by-default), dicek di server pada setiap request.
+ *
+ * Izin dan siapa yang memilikinya:
+ * - master       : kelola data master (siswa, kelas, ruangan, mapel, jam, jadwal, libur, impor) → Super Admin, TU
+ * - accounts     : kelola akun pengguna → Super Admin
+ * - settings     : pengaturan sekolah → Super Admin
+ * - audit        : audit log → Super Admin
+ * - reports      : rekap seluruh sekolah → Super Admin, Kepsek, TU
+ * - class:view   : melihat data satu kelas → Super Admin, Kepsek, TU; Guru hanya kelas yang diajar atau diwali
+ * - class:manage : koreksi status dan izin satu kelas → Super Admin, TU, Wali Kelas kelas itu
  */
 final class Access
 {
-    /** Izin granular yang dapat diberikan ke Admin Event. */
-    public const PERMS = [
-        'event_edit' => 'Mengubah informasi dan status event',
-        'participants' => 'Melihat, mengoreksi, dan menghapus data peserta',
-        'status' => 'Mengubah status kehadiran manual',
-        'attendance' => 'Memindai QR / memproses presensi',
-        'reports' => 'Melihat laporan, riwayat, dan mengekspor',
-        'audit' => 'Melihat audit log event',
-    ];
+    public const PERMS = ['master', 'accounts', 'settings', 'audit', 'reports', 'class:view', 'class:manage'];
 
-    /** Kebijakan awal: semua izin operasional. */
-    public const DEFAULT_PERMS = ['event_edit', 'participants', 'status', 'attendance', 'reports', 'audit'];
-
-    /** @var array<int, array<int, string[]>> */
+    /** @var array<int, array{teach:int[], homeroom:int[]}> */
     private static array $cache = [];
-
-    /** @return array<int, string[]> event_id => izin */
-    public static function assignments(int $userId): array
-    {
-        if (isset(self::$cache[$userId])) {
-            return self::$cache[$userId];
-        }
-        $out = [];
-        if (DB::tableExists('event_admin_assignments')) {
-            foreach (DB::all('SELECT event_id, permissions FROM event_admin_assignments WHERE user_id = ?', [$userId]) as $row) {
-                $out[(int) $row['event_id']] = self::decode($row['permissions']);
-            }
-        }
-        return self::$cache[$userId] = $out;
-    }
-
-    public static function decode(?string $json): array
-    {
-        $list = json_decode((string) $json, true);
-        return is_array($list) ? array_values(array_intersect(array_keys(self::PERMS), $list)) : [];
-    }
 
     public static function forget(): void
     {
         self::$cache = [];
     }
 
-    /** @return int[]|null null = semua event (Super Admin) */
-    public static function eventIds(array $user, ?string $perm = null): ?array
+    public static function can(array $user, string $perm, ?int $classId = null): bool
     {
-        return match ($user['role']) {
-            Auth::SUPER => null,
-            Auth::EVENT => array_keys(array_filter(
-                self::assignments((int) $user['id']),
-                static fn (array $perms) => $perm === null || in_array($perm, $perms, true)
-            )),
-            Auth::ADMIN => ($perm === null || $perm === 'attendance') && $user['event_id'] ? [(int) $user['event_id']] : [],
-            default => [],
+        $role = $user['role'];
+        if ($role === Auth::SUPER) {
+            return true;
+        }
+        return match ($perm) {
+            'master' => $role === Auth::TU,
+            'reports' => in_array($role, [Auth::KEPSEK, Auth::TU], true),
+            'accounts', 'settings', 'audit' => false,
+            'class:view' => in_array($role, [Auth::KEPSEK, Auth::TU], true)
+                || ($role === Auth::GURU && self::inList(self::classIds($user), $classId)),
+            'class:manage' => $role === Auth::TU
+                || ($role === Auth::GURU && self::inList(self::homeroomClassIds($user), $classId)),
+            default => false,
         };
     }
 
-    /** $perm null = cukup ditugaskan ke event (izin apa pun). */
-    public static function can(array $user, int $eventId, ?string $perm): bool
+    /** $classId null = "punya akses ke setidaknya satu kelas" (untuk menampilkan menu). */
+    private static function inList(?array $ids, ?int $classId): bool
     {
-        if ($eventId <= 0) {
-            return false;
-        }
-        $ids = self::eventIds($user, $perm);
-        return $ids === null || in_array($eventId, $ids, true);
-    }
-
-    /** Apakah pengguna punya izin ini di minimal satu event (untuk menampilkan menu). */
-    public static function any(array $user, string $perm): bool
-    {
-        $ids = self::eventIds($user, $perm);
-        return $ids === null || $ids !== [];
-    }
-
-    /** Event yang boleh dipakai pengguna, terbaru dulu. */
-    public static function events(array $user, ?string $perm = null): array
-    {
-        $ids = self::eventIds($user, $perm);
         if ($ids === null) {
-            return Event::all();
+            return true;
         }
-        if (!$ids) {
-            return [];
-        }
-        return DB::all(
-            'SELECT * FROM events WHERE id IN (' . implode(',', array_map('intval', $ids)) . ') ORDER BY event_date DESC, id DESC'
-        );
+        return $classId === null ? $ids !== [] : in_array($classId, $ids, true);
     }
 
-    /** Ambil event bila diizinkan; tolak (403 + audit log) bila tidak. */
-    public static function requireEvent(array $user, int $eventId, ?string $perm): array
+    /** Hentikan request dan catat di audit log bila tidak berhak. */
+    public static function require(array $user, string $perm, ?int $classId = null): void
     {
-        if (!self::can($user, $eventId, $perm)) {
-            self::deny($user, $eventId, $perm);
+        if (!self::can($user, $perm, $classId)) {
+            self::deny($user, $perm, $classId);
         }
-        $event = Event::find($eventId);
-        if (!$event) {
-            abort(404, 'Event tidak ditemukan');
-        }
-        return $event;
     }
 
-    public static function deny(array $user, ?int $eventId, ?string $perm): never
+    public static function deny(array $user, string $perm, ?int $classId = null): never
     {
-        AuditLog::add($user, 'access.denied', $eventId ?: null, 'permission', $perm ?? 'event', ['path' => \App\Core\Router::currentPath()], 'denied');
-        if (is_api_request()) {
-            json_out(['ok' => false, 'state' => 'forbidden', 'message' => t('Akun ini tidak memiliki akses.')], 403);
+        AuditLog::add($user, 'access.denied', $classId, 'perm', $perm, ['path' => Router::currentPath()], 'denied');
+        Auth::forbidden($user);
+    }
+
+    /** @return int[]|null null = semua kelas (Super Admin, Kepsek, TU); Guru: kelas yang diajar atau diwali. */
+    public static function classIds(array $user): ?array
+    {
+        if ($user['role'] !== Auth::GURU) {
+            return null;
         }
-        http_response_code(403);
-        View::render('errors/forbidden', ['title' => t('Akses ditolak'), 'active' => '', 'user' => $user], 'app');
-        exit;
+        $d = self::load($user);
+        return array_values(array_unique(array_merge($d['teach'], $d['homeroom'])));
+    }
+
+    /** @return int[] kelas perwalian guru ini pada tahun ajaran aktif (kosong untuk peran lain). */
+    public static function homeroomClassIds(array $user): array
+    {
+        return $user['role'] === Auth::GURU ? self::load($user)['homeroom'] : [];
+    }
+
+    public static function isHomeroom(array $user): bool
+    {
+        return self::homeroomClassIds($user) !== [];
+    }
+
+    private static function load(array $user): array
+    {
+        $uid = (int) $user['id'];
+        if (isset(self::$cache[$uid])) {
+            return self::$cache[$uid];
+        }
+        $year = AcademicYear::active();
+        $semester = Semester::active();
+        $homeroom = $year
+            ? array_map('intval', array_column(DB::all('SELECT id FROM classes WHERE academic_year_id = ? AND homeroom_teacher_id = ?', [(int) $year['id'], $uid]), 'id'))
+            : [];
+        $teach = $semester
+            ? array_map('intval', array_column(DB::all('SELECT DISTINCT class_id FROM schedules WHERE semester_id = ? AND teacher_id = ?', [(int) $semester['id'], $uid]), 'class_id'))
+            : [];
+        return self::$cache[$uid] = ['teach' => $teach, 'homeroom' => $homeroom];
     }
 }

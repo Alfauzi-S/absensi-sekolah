@@ -210,9 +210,12 @@ function client_ip(): string
 /* ---------- format tampilan ---------- */
 
 const STATUS_LABELS = [
-    'hadir' => ['Hadir', 'ok'],
-    'belum' => ['Belum diverifikasi', 'warn'],
-    'tidak' => ['Tidak Hadir', 'bad'],
+    'H' => ['Hadir', 'ok'],
+    'T' => ['Terlambat', 'warn'],
+    'I' => ['Izin', 'info'],
+    'S' => ['Sakit', 'info'],
+    'D' => ['Dispensasi', 'teal'],
+    'A' => ['Alpa', 'bad'],
 ];
 
 function status_label(string $status): string
@@ -226,44 +229,11 @@ function status_badge(string $status, bool $large = false): string
     return '<span class="bdg bdg-' . $tone . ($large ? ' lg' : '') . '"><i></i>' . e(t($label)) . '</span>';
 }
 
-function event_badge(string $status): string
+/** Nama hari dari nomor ISO (1 = Senin … 7 = Minggu). */
+function day_name(int $iso, bool $short = false): string
 {
-    $tone = ['Draft' => 'mute', 'Aktif' => 'teal', 'Selesai' => 'navy', 'Ditutup' => 'bad'][$status] ?? 'mute';
-    return '<span class="bdg bdg-' . $tone . '">' . e(t($status)) . '</span>';
-}
-
-/** Jam acara, misalnya "08:00–15:00" atau "08:00–selesai" bila jam selesai dikosongkan. */
-function event_time(array $e): string
-{
-    return $e['start_time'] . '–' . ($e['end_time'] !== '' ? $e['end_time'] : t('selesai'));
-}
-
-/** Periode registrasi untuk ditampilkan, lengkap dengan jam tutup bila ada. */
-function reg_period(array $e): string
-{
-    $end = date_id($e['reg_end'] ?? null);
-    if (!empty($e['reg_end']) && !empty($e['reg_end_time'])) {
-        $end .= ' ' . t('pukul :time', ['time' => $e['reg_end_time']]);
-    }
-    return date_id($e['reg_start'] ?? null) . ' – ' . $end;
-}
-
-function reg_badge(string $status): string
-{
-    $label = $status === 'Dibuka' ? 'Registrasi dibuka' : 'Registrasi ditutup';
-    return '<span class="bdg ' . ($status === 'Dibuka' ? 'bdg-info' : 'bdg-mute') . '">' . e(t($label)) . '</span>';
-}
-
-const ATT_LABELS = [
-    'notyet' => ['Presensi belum dibuka', 'mute'],
-    'open' => ['Presensi dibuka', 'ok'],
-    'closed' => ['Presensi ditutup', 'bad'],
-];
-
-function att_badge(string $status): string
-{
-    [$label, $tone] = ATT_LABELS[$status] ?? [$status, 'mute'];
-    return '<span class="bdg bdg-' . $tone . '"><i></i>' . e(t($label)) . '</span>';
+    $name = (lang() === 'en' ? DAYS_EN : DAYS_ID)[$iso % 7];
+    return $short ? mb_substr($name, 0, 3) : $name;
 }
 
 const MONTHS_ID = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
@@ -323,13 +293,10 @@ function initials(string $name): string
 }
 
 /** Untuk menampilkan menu/tombol saja. Keamanan tetap diperiksa di controller. */
-function can(string $perm, ?int $eventId = null): bool
+function can(string $perm, ?int $classId = null): bool
 {
     $user = \App\Core\Auth::user();
-    if (!$user) {
-        return false;
-    }
-    return $eventId === null ? \App\Services\Access::any($user, $perm) : \App\Services\Access::can($user, $eventId, $perm);
+    return $user ? \App\Services\Access::can($user, $perm, $classId) : false;
 }
 
 function is_super(): bool

@@ -4,96 +4,168 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Core\Database as DB;
-use App\Models\Event;
-use App\Models\Participant;
+use App\Models\AcademicYear;
+use App\Models\Semester;
+use App\Models\Setting;
 use App\Models\User;
 
 /**
- * Data demo fiktif: 1 event aktif hari ini, 156 peserta (98 hadir, 8 tidak hadir),
- * dan 2 akun Admin Presensi. Hanya untuk uji coba; jangan dipakai di event sungguhan.
+ * Data demo sesuai skala PRD: 30 kelas × 36 siswa (1.080 siswa), 30 ruangan, 60 guru,
+ * 12 mapel, 10 jam pelajaran, dan jadwal satu minggu penuh tanpa bentrok guru/ruangan.
+ * Dipakai untuk mencoba aplikasi dan sebagai data uji beban.
  */
 final class DemoSeeder
 {
-    private const FIRST = ['Aditya', 'Alya', 'Arief', 'Bagas', 'Bunga', 'Cahya', 'Daffa', 'Dewi', 'Elang', 'Farah', 'Fikri', 'Gilang', 'Hana', 'Ilham', 'Intan', 'Jihan', 'Kevin', 'Laras', 'Luthfi', 'Maya', 'Naufal', 'Nisa', 'Oki', 'Putri', 'Qori', 'Rafi', 'Rania', 'Sekar', 'Tegar', 'Tiara', 'Umar', 'Vina', 'Wahyu', 'Yasmin', 'Zaki', 'Anisa', 'Bayu', 'Citra', 'Galih', 'Keisha'];
-    private const MIDDLE = ['Ayu', 'Dwi', 'Eka', 'Kurnia', 'Mahesa', 'Nur', 'Putra', 'Sari', 'Tri', 'Wulan', 'Adi', 'Rizky', 'Dian', 'Indah', 'Bagus', 'Lintang'];
-    private const LAST = ['Pratama', 'Wijaya', 'Saputra', 'Lestari', 'Kusuma', 'Hidayat', 'Permata', 'Nugroho', 'Anggraini', 'Ramadhan', 'Santoso', 'Maharani', 'Halim', 'Setiawan', 'Wardani', 'Purnama', 'Siregar', 'Pangestu', 'Utami', 'Rahmawati'];
-    private const REASONS = ['Izin tertulis: mewakili kampus di lomba robotik', 'Sakit, surat keterangan dokter diterima panitia', 'Izin keluarga, dikonfirmasi dosen wali', 'Bentrok jadwal praktikum susulan', 'Konfirmasi tidak hadir via WhatsApp', 'Izin tertulis: magang di luar kota', 'Sakit, konfirmasi orang tua', 'Izin dari ketua prodi'];
+    public const CLASSES = 30;
+    public const PER_CLASS = 36;
+    public const TEACHERS = 60;
 
-    /** @return array<int, array{username:string,password:string,name:string}> akun admin demo */
+    private const SUBJECTS = [
+        ['MTK', 'Matematika'], ['BIND', 'Bahasa Indonesia'], ['BING', 'Bahasa Inggris'], ['FIS', 'Fisika'],
+        ['KIM', 'Kimia'], ['BIO', 'Biologi'], ['SEJ', 'Sejarah'], ['PAI', 'Pendidikan Agama'],
+        ['PKN', 'PPKn'], ['PJOK', 'Penjasorkes'], ['INF', 'Informatika'], ['SBK', 'Seni Budaya'],
+    ];
+
+    private const FIRST = ['Adi', 'Aisyah', 'Bagas', 'Bunga', 'Citra', 'Dimas', 'Dewi', 'Eka', 'Fajar', 'Fitri', 'Gilang', 'Hana', 'Ilham', 'Intan', 'Joko',
+        'Kirana', 'Lutfi', 'Maya', 'Nabila', 'Oka', 'Putri', 'Rafi', 'Rina', 'Salsa', 'Tegar', 'Umar', 'Vina', 'Wahyu', 'Yusuf', 'Zahra', 'Anggi', 'Bayu', 'Dinda', 'Farhan', 'Galih', 'Laras'];
+    private const LAST = ['Pratama', 'Saputra', 'Santoso', 'Wijaya', 'Ramadhan', 'Lestari', 'Nugroho', 'Hidayat', 'Maulana', 'Permata', 'Kusuma', 'Anggraini',
+        'Setiawan', 'Rahayu', 'Firmansyah', 'Puspita', 'Wibowo', 'Utami', 'Siregar', 'Nasution'];
+    private const FEMALE = ['Aisyah', 'Bunga', 'Citra', 'Dewi', 'Fitri', 'Hana', 'Intan', 'Kirana', 'Maya', 'Nabila', 'Putri', 'Rina', 'Salsa', 'Vina', 'Zahra', 'Anggi', 'Dinda', 'Laras', 'Eka'];
+
+    /** @return array{accounts: array<int, array{name:string,username:string,password:string,role:string}>} */
     public static function run(array $super): array
     {
         mt_srand(2026);
-        $eventId = Event::create([
-            'name' => 'Smart City Day — Informatika 2026',
-            'description' => 'Hari pameran proyek kota pintar mahasiswa Informatika angkatan 2026: demo IoT kampus, dashboard transportasi, dan sesi berbagi dengan praktisi. (Data demo)',
-            'organizer' => 'Himpunan Mahasiswa Informatika',
-            'location' => 'Gedung Inovasi Digital, Aula Lt. 3',
-            'event_date' => today(),
-            'start_time' => '08:00',
-            'end_time' => '15:00',
-            'reg_start' => date('Y-m-d', strtotime('-14 days')),
-            'reg_end' => today(),
-            'att_start' => '07:00',
-            'att_end' => '10:00',
-            'status' => 'Aktif',
-            'reg_status' => 'Dibuka',
-            'att_status' => 'open',
-        ]);
-
         $accounts = [];
-        $adminIds = [];
-        foreach ([['Petugas Presensi A', 'petugas.a'], ['Petugas Presensi B', 'petugas.b']] as [$name, $username]) {
-            if (User::findByUsername($username)) {
-                continue;
-            }
-            $password = User::randomPassword(10);
-            $adminIds[] = User::create(['name' => $name, 'username' => $username, 'password' => $password, 'role' => 'admin', 'event_id' => $eventId, 'status' => 'Aktif']);
-            $accounts[] = ['name' => $name, 'username' => $username, 'password' => $password];
+        $year = (int) date('Y');
+        $start = (int) date('n') >= 7 ? $year : $year - 1;
+        $yearName = $start . '/' . ($start + 1);
+        $yearId = (int) (DB::value('SELECT id FROM academic_years WHERE name = ?', [$yearName]) ?: AcademicYear::create([
+            'name' => $yearName, 'start_date' => $start . '-07-13', 'end_date' => ($start + 1) . '-06-27',
+        ]));
+        if (!DB::value('SELECT id FROM semesters WHERE academic_year_id = ?', [$yearId])) {
+            Semester::create($yearId, ['name' => 'Ganjil', 'start_date' => $start . '-07-13', 'end_date' => $start . '-12-20']);
+            Semester::create($yearId, ['name' => 'Genap', 'start_date' => ($start + 1) . '-01-05', 'end_date' => ($start + 1) . '-06-27']);
         }
-        $adminIds = $adminIds ?: [(int) $super['id']];
+        AcademicYear::activate($yearId);
+        // Semester aktif mengikuti bulan sekarang
+        $sem = DB::one('SELECT id FROM semesters WHERE academic_year_id = ? AND name = ?', [$yearId, (int) date('n') >= 7 || (int) date('n') <= 0 ? 'Ganjil' : ((int) date('n') >= 1 && (int) date('n') <= 6 ? 'Genap' : 'Ganjil')]);
+        Semester::activate((int) $sem['id']);
+        $semesterId = (int) $sem['id'];
 
-        DB::transaction(static function () use ($eventId, $adminIds, $super): void {
-            $used = [];
-            $statuses = array_merge(array_fill(0, 98, 'hadir'), array_fill(0, 8, 'tidak'), array_fill(0, 50, 'belum'));
-            shuffle($statuses);
-            $hadirIndex = 0;
-            $tidakIndex = 0;
-            $start = strtotime(today() . ' 07:03');
-            for ($i = 1; $i <= 156; $i++) {
-                do {
-                    $name = self::FIRST[mt_rand(0, count(self::FIRST) - 1)] . ' '
-                        . (mt_rand(0, 99) < 55 ? self::MIDDLE[mt_rand(0, count(self::MIDDLE) - 1)] . ' ' : '')
-                        . self::LAST[mt_rand(0, count(self::LAST) - 1)];
-                } while (isset($used[$name]));
-                $used[$name] = true;
-                $p = Participant::create($eventId, [
-                    'identity_number' => '2609106' . str_pad((string) $i, 3, '0', STR_PAD_LEFT),
-                    'profession' => 'Mahasiswa S1',
-                    'full_name' => $name,
-                    'phone' => '08' . ['12', '13', '21', '52', '57', '77', '81', '95'][mt_rand(0, 7)] . str_pad((string) mt_rand(0, 99999999), 8, '0', STR_PAD_LEFT),
-                    'institution' => 'Universitas Mahakam Raya',
-                    'field_of_study' => 'Informatika',
-                ]);
-                $status = $statuses[$i - 1];
-                if ($status === 'hadir') {
-                    $at = date('Y-m-d H:i:s', $start + (int) round($hadirIndex * (126 * 60 / 98)));
-                    DB::update('participants', ['status' => 'hadir', 'checked_in_at' => $at, 'checked_in_by' => $adminIds[$hadirIndex % count($adminIds)], 'method' => 'scan'], 'id = ?', [$p['id']]);
-                    $hadirIndex++;
-                } elseif ($status === 'tidak') {
-                    DB::update('participants', ['status' => 'tidak', 'checked_in_by' => (int) $super['id'], 'method' => 'manual'], 'id = ?', [$p['id']]);
-                    DB::insert('status_history', [
-                        'participant_id' => $p['id'],
-                        'old_status' => 'belum',
-                        'new_status' => 'tidak',
-                        'reason' => self::REASONS[$tidakIndex % count(self::REASONS)],
-                        'changed_by' => (int) $super['id'],
-                        'changed_by_username' => $super['username'],
-                        'changed_at' => date('Y-m-d H:i:s', strtotime(today() . ' 08:06') + $tidakIndex * 420),
-                    ]);
-                    $tidakIndex++;
+        Setting::setMany(['school_name' => 'SMA Negeri Contoh', 'headmaster_name' => 'Drs. Hadi Purnomo, M.Pd.']);
+
+        DB::transaction(static function () use ($yearId, $semesterId, $super, &$accounts): void {
+            // Jam pelajaran: 10 jam @45 menit, istirahat setelah jam 3 dan 6
+            $t = 7 * 60;
+            for ($n = 1; $n <= 10; $n++) {
+                if (!DB::value('SELECT id FROM periods WHERE number = ?', [$n])) {
+                    DB::insert('periods', ['number' => $n, 'start_time' => sprintf('%02d:%02d', intdiv($t, 60), $t % 60), 'end_time' => sprintf('%02d:%02d', intdiv($t + 45, 60), ($t + 45) % 60)]);
+                }
+                $t += 45 + (($n === 3 || $n === 6) ? 15 : 0);
+            }
+            // Mapel
+            $subjectIds = [];
+            foreach (self::SUBJECTS as [$code, $name]) {
+                $subjectIds[] = (int) (DB::value('SELECT id FROM subjects WHERE code = ?', [$code]) ?: DB::insert('subjects', ['code' => $code, 'name' => $name, 'created_at' => now()]));
+            }
+            // Ruangan: satu per kelas
+            $roomIds = [];
+            for ($i = 1; $i <= self::CLASSES; $i++) {
+                $code = sprintf('R-%02d', $i);
+                $roomIds[] = (int) (DB::value('SELECT id FROM rooms WHERE code = ?', [$code]) ?: DB::insert('rooms', ['code' => $code, 'name' => 'Ruang ' . $i, 'created_at' => now()]));
+            }
+            // Guru: 60 akun, 5 guru per mapel
+            $teacherIds = [];
+            for ($i = 0; $i < self::TEACHERS; $i++) {
+                $username = sprintf('guru%02d', $i + 1);
+                $u = User::findByUsername($username);
+                if ($u) {
+                    $teacherIds[] = (int) $u['id'];
+                    continue;
+                }
+                $name = self::FIRST[$i % count(self::FIRST)] . ' ' . self::LAST[($i * 7) % count(self::LAST)];
+                $password = $i === 0 ? 'guru12345' : User::randomPassword(10);
+                $id = User::create(['name' => $name, 'username' => $username, 'password' => $password, 'role' => 'guru',
+                    'nip' => sprintf('19%02d%02d%02d20%02d%02d%03d', 70 + $i % 20, 1 + $i % 12, 1 + $i % 28, 5 + $i % 15, 1 + $i % 2, $i + 1), 'status' => 'Aktif']);
+                $teacherIds[] = $id;
+                if ($i === 0) {
+                    $accounts[] = ['name' => $name, 'username' => $username, 'password' => $password, 'role' => 'Guru (wali kelas X-1)'];
+                }
+            }
+            // Akun TU dan Kepsek
+            foreach ([['tu', 'Tata Usaha', 'tu.sekolah', 'tu12345678', 'TU / Staff'], ['kepsek', 'Drs. Hadi Purnomo, M.Pd.', 'kepsek', 'kepsek12345', 'Kepala Sekolah']] as [$role, $name, $username, $password, $label]) {
+                if (!User::findByUsername($username)) {
+                    User::create(['name' => $name, 'username' => $username, 'password' => $password, 'role' => $role, 'status' => 'Aktif']);
+                    $accounts[] = ['name' => $name, 'username' => $username, 'password' => $password, 'role' => $label];
+                }
+            }
+            // Kelas: X-1..X-10, XI-1..XI-10, XII-1..XII-10 ; wali kelas = guru ke-i
+            $classIds = [];
+            $grades = [10 => 'X', 11 => 'XI', 12 => 'XII'];
+            $c = 0;
+            foreach ($grades as $grade => $label) {
+                for ($k = 1; $k <= self::CLASSES / 3; $k++) {
+                    $name = $label . '-' . $k;
+                    $id = DB::value('SELECT id FROM classes WHERE academic_year_id = ? AND name = ?', [$yearId, $name]);
+                    if (!$id) {
+                        $id = DB::insert('classes', ['academic_year_id' => $yearId, 'name' => $name, 'grade' => $grade,
+                            'homeroom_teacher_id' => $teacherIds[$c], 'room_id' => $roomIds[$c], 'created_at' => now()]);
+                    }
+                    $classIds[] = (int) $id;
+                    $c++;
+                }
+            }
+            // Siswa: 36 per kelas
+            if ((int) DB::value('SELECT COUNT(*) FROM students') < self::CLASSES * self::PER_CLASS) {
+                $n = 0;
+                foreach ($classIds as $ci => $classId) {
+                    $grade = 10 + intdiv($ci, 10);
+                    for ($s = 0; $s < self::PER_CLASS; $s++) {
+                        $n++;
+                        $nis = (string) (240000 + $n + ($grade - 10) * 0);
+                        $nis = sprintf('%d%04d', 26 - ($grade - 10), $n);
+                        if (DB::value('SELECT id FROM students WHERE nis = ?', [$nis])) {
+                            continue;
+                        }
+                        $first = self::FIRST[($n * 13 + $s) % count(self::FIRST)];
+                        $last = self::LAST[($n * 11 + $ci) % count(self::LAST)];
+                        $gender = in_array($first, self::FEMALE, true) ? 'P' : 'L';
+                        $birthYear = 2026 - 15 - ($grade - 10);
+                        $sid = DB::insert('students', [
+                            'nis' => $nis, 'nisn' => sprintf('00%08d', 81000000 + $n), 'full_name' => $first . ' ' . $last, 'gender' => $gender,
+                            'birth_date' => sprintf('%d-%02d-%02d', $birthYear, 1 + $n % 12, 1 + $n % 28), 'parent_name' => 'Orang tua ' . $last,
+                            'parent_phone' => '08' . sprintf('%010d', 1200000000 + $n), 'status' => 'Aktif', 'created_at' => now(), 'updated_at' => now(),
+                        ]);
+                        DB::insert('class_members', ['class_id' => $classId, 'student_id' => $sid, 'academic_year_id' => $yearId, 'created_at' => now()]);
+                    }
+                }
+            }
+            // Jadwal: Senin–Jumat, 4 blok @2 jam per hari (jam 1–8). Mapel s = (blok + kelas) % 12, guru = guru mapel ke-(kelas % 5)
+            // → tidak pernah bentrok guru (lihat PRD/komentar) dan ruangan = ruang kelas sendiri.
+            if (!DB::value('SELECT id FROM schedules WHERE semester_id = ? LIMIT 1', [$semesterId])) {
+                foreach ($classIds as $ci => $classId) {
+                    for ($day = 1; $day <= 5; $day++) {
+                        for ($b = 0; $b < 4; $b++) {
+                            $block = ($day - 1) * 4 + $b;
+                            $s = ($block + $ci) % count($subjectIds);
+                            $teacher = $teacherIds[$s * 5 + ($ci % 5)];
+                            DB::insert('schedules', [
+                                'semester_id' => $semesterId, 'class_id' => $classId, 'subject_id' => $subjectIds[$s], 'teacher_id' => $teacher,
+                                'room_id' => $roomIds[$ci], 'day_of_week' => $day, 'period_start' => $b * 2 + 1, 'period_end' => $b * 2 + 2, 'created_at' => now(),
+                            ]);
+                        }
+                    }
+                }
+            }
+            // Hari libur contoh
+            foreach ([[date('Y') . '-12-25', 'Hari Raya Natal'], [((int) date('Y') + 1) . '-01-01', 'Tahun Baru Masehi']] as [$d, $name]) {
+                if (!DB::value('SELECT id FROM holidays WHERE holiday_date = ?', [$d])) {
+                    DB::insert('holidays', ['holiday_date' => $d, 'name' => $name]);
                 }
             }
         });
-        return $accounts;
+        Access::forget();
+        return ['accounts' => $accounts];
     }
 }

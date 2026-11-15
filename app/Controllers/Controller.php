@@ -5,7 +5,8 @@ namespace App\Controllers;
 
 use App\Core\Auth;
 use App\Core\View;
-use App\Models\Event;
+use App\Models\AcademicYear;
+use App\Models\Semester;
 use App\Models\User;
 use App\Services\Access;
 use App\Services\Validator;
@@ -14,50 +15,26 @@ abstract class Controller
 {
     protected function render(string $template, array $data = [], string $layout = 'app'): void
     {
-        View::render($template, $data + ['user' => Auth::user()], $layout);
+        View::render($template, $data + ['user' => Auth::user(), 'activeYear' => AcademicYear::active(), 'activeSemester' => Semester::active()], $layout);
     }
 
-    /**
-     * Event yang sedang dikelola.
-     * Admin Presensi selalu terkunci ke event yang ditugaskan Super Admin.
-     * Super Admin bisa memilih lewat ?ev= (diingat di sesi).
-     * Admin Event hanya bisa memilih event yang ditugaskan dan memiliki izin $perm;
-     * meminta event lain lewat ?ev= atau body API ditolak (403) dan dicatat.
-     */
-    protected function currentEvent(array $user, ?int $requested = null, ?string $perm = null): ?array
+    /** Pengguna yang login dan punya izin tertentu (dicatat di audit log bila ditolak). */
+    protected function allow(string $perm, ?int $classId = null): array
     {
-        if ($user['role'] === Auth::ADMIN) {
-            return $user['event_id'] ? Event::find((int) $user['event_id']) : null;
-        }
-        $allowed = Access::eventIds($user, $perm);
-        $explicit = $requested ?? (query('ev') !== '' ? (int) query('ev') : null);
-        if ($explicit !== null && $allowed !== null && !in_array($explicit, $allowed, true)) {
-            Access::deny($user, $explicit, $perm ?? 'event');
-        }
-        $id = $explicit ?? (int) ($_SESSION['ev'] ?? 0);
-        if ($allowed !== null && !in_array($id, $allowed, true)) {
-            $id = 0;
-        }
-        $event = $id ? Event::find($id) : null;
-        if (!$event) {
-            if ($allowed === null) {
-                $event = Event::defaultEvent();
-            } else {
-                $mine = Access::events($user, $perm);
-                $active = array_values(array_filter($mine, static fn ($e) => $e['status'] === 'Aktif'));
-                $event = $active[0] ?? $mine[0] ?? null;
-            }
-        }
-        if ($event) {
-            $_SESSION['ev'] = (int) $event['id'];
-        }
-        return $event;
+        $user = Auth::require();
+        Access::require($user, $perm, $classId);
+        return $user;
     }
 
-    /** Pengguna yang boleh membuka halaman pengelolaan (/admin): Super Admin dan Admin Event. */
-    protected function manager(): array
+    /** Tahun ajaran aktif wajib ada untuk halaman data master; bila belum, arahkan ke halaman tahun ajaran. */
+    protected function needYear(): array
     {
-        return Auth::require(Auth::SUPER, Auth::EVENT);
+        $year = AcademicYear::active();
+        if (!$year) {
+            flash('warn', 'Belum ada tahun ajaran aktif', t('Buat dan aktifkan tahun ajaran terlebih dahulu.'));
+            redirect('admin/tahun-ajaran');
+        }
+        return $year;
     }
 
     protected function page(): int
@@ -65,7 +42,7 @@ abstract class Controller
         return max(1, (int) query('hal', '1'));
     }
 
-    /** Ganti password akun yang sedang login (dipakai Admin dan Super Admin). */
+    /** Ganti password akun yang sedang login. */
     protected function changeOwnPassword(array $user, string $back): void
     {
         $current = (string) ($_POST['current_password'] ?? '');

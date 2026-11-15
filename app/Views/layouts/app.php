@@ -3,38 +3,33 @@ use App\Core\Auth;
 
 $role = $user['role'] ?? '';
 $isSuper = $role === Auth::SUPER;
-$isManager = in_array($role, [Auth::SUPER, Auth::EVENT], true);
-$roleCls = $isSuper ? '' : ($role === Auth::EVENT ? ' evt' : ' adm');
+$isGuru = $role === Auth::GURU;
+$roleCls = $isSuper ? '' : ($isGuru ? ' adm' : ' evt');
 $active = $active ?? '';
-if ($isManager) {
-    // Menu Admin Event hanya menampilkan fitur yang izinnya dimiliki (keamanan tetap dicek di controller).
-    $nav = array_values(array_filter([
-        ['dashboard', 'admin', 'grid', 'Dashboard'],
-        ['events', 'admin/event', 'calendar', 'Event'],
-        can('participants') ? ['participants', 'admin/peserta', 'users', 'Peserta'] : null,
-        can('reports') ? ['reports', 'admin/laporan', 'chart', 'Laporan'] : null,
-        can('reports') ? ['history', 'admin/riwayat', 'history', 'Riwayat'] : null,
-        $isSuper ? ['accounts', 'admin/akun', 'shield', 'Akun Admin'] : null,
-        can('audit') ? ['audit', 'admin/audit', 'file', 'Audit Log'] : null,
-        can('attendance') ? ['scan', 'petugas/scan', 'scan', 'Scan QR'] : null,
-        ['settings', 'admin/pengaturan', 'sliders', 'Pengaturan'],
-    ]));
-    $bottomKeys = ['dashboard', 'events', 'participants', 'reports'];
-    $bottom = array_values(array_filter($nav, static fn ($n) => in_array($n[0], $bottomKeys, true)));
-    $bottom = array_map(static fn ($n) => $n[0] === 'dashboard' ? ['dashboard', 'admin', 'grid', 'Beranda'] : $n, $bottom);
-    $more = array_values(array_filter($nav, static fn ($n) => !in_array($n[0], $bottomKeys, true)));
-} else {
-    $nav = [
-        ['dashboard', 'petugas', 'home', 'Beranda'],
-        ['scan', 'petugas/scan', 'scan', 'Scan QR'],
-        ['participants', 'petugas/peserta', 'users', 'Peserta'],
-        ['profile', 'petugas/profil', 'user', 'Profil'],
-    ];
-    $bottom = [['dashboard', 'petugas', 'home', 'Beranda'], ['scan', 'petugas/scan', 'scan', 'Scan'], ['participants', 'petugas/peserta', 'users', 'Peserta'], ['profile', 'petugas/profil', 'user', 'Profil']];
-    $more = [];
-}
-$moreActive = $isManager && in_array($active, array_column($more, 0), true);
+// Menu hanya menampilkan fitur yang izinnya dimiliki; keamanan tetap dicek di controller.
+$nav = array_values(array_filter([
+    ['dashboard', 'admin', 'grid', 'Dashboard'],
+    ['classes', 'admin/kelas', 'building', 'Kelas'],
+    ['students', 'admin/siswa', 'users', 'Siswa'],
+    ['schedules', 'admin/jadwal', 'calendar', 'Jadwal'],
+    can('master') ? ['years', 'admin/tahun-ajaran', 'history', 'Tahun Ajaran'] : null,
+    can('master') ? ['master-ruangan', 'admin/master/ruangan', 'pin', 'Ruangan'] : null,
+    can('master') ? ['master-mapel', 'admin/master/mapel', 'file', 'Mata Pelajaran'] : null,
+    can('master') ? ['master-jam', 'admin/master/jam', 'clock', 'Jam Pelajaran'] : null,
+    can('master') ? ['master-libur', 'admin/master/libur', 'sun', 'Hari Libur'] : null,
+    can('master') ? ['import', 'admin/impor', 'upload', 'Impor Data'] : null,
+    can('accounts') ? ['accounts', 'admin/akun', 'shield', 'Akun Pengguna'] : null,
+    can('audit') ? ['audit', 'admin/audit', 'eye', 'Audit Log'] : null,
+    ['settings', 'admin/pengaturan', 'sliders', 'Pengaturan'],
+]));
+$bottomKeys = ['dashboard', 'classes', 'students', 'schedules'];
+$bottom = array_values(array_filter($nav, static fn ($n) => in_array($n[0], $bottomKeys, true)));
+$bottom = array_map(static fn ($n) => $n[0] === 'dashboard' ? ['dashboard', 'admin', 'grid', 'Beranda'] : $n, $bottom);
+$more = array_values(array_filter($nav, static fn ($n) => !in_array($n[0], $bottomKeys, true)));
+$moreActive = in_array($active, array_column($more, 0), true);
 $roleName = Auth::roleLabel($role);
+$schoolName = \App\Models\Setting::get('school_name') ?: config('app_name', 'Absensi Sekolah');
+$yearLabel = !empty($activeYear) ? $activeYear['name'] . (!empty($activeSemester) ? ' · ' . $activeSemester['name'] : '') : t('Belum ada tahun ajaran');
 ?>
 <!doctype html>
 <html lang="<?= e(lang()) ?>">
@@ -44,11 +39,11 @@ $roleName = Auth::roleLabel($role);
 <body>
 <div class="app">
   <aside class="side" aria-label="<?= e(t('Navigasi utama')) ?>">
-    <a class="sb-brand" href="<?= e(url($isManager ? 'admin' : 'petugas')) ?>">
+    <a class="sb-brand" href="<?= e(url('admin')) ?>">
       <?= logo_mark(40) ?>
-      <span class="t">SmartCity<small>Attendance</small></span>
+      <span class="t"><?= e(config('app_name', 'Absensi Sekolah')) ?><small><?= e($schoolName !== config('app_name', 'Absensi Sekolah') ? $schoolName : $yearLabel) ?></small></span>
     </a>
-    <span class="role<?= $roleCls ?>"><?= e($roleName) ?></span>
+    <span class="role<?= $roleCls ?>" title="<?= e($yearLabel) ?>"><?= e($roleName) ?></span>
     <?php foreach ($nav as [$key, $path, $ic, $label]): ?>
       <a class="nav-i<?= $active === $key ? ' on' : '' ?>" href="<?= e(url($path)) ?>"<?= $active === $key ? ' aria-current="page"' : '' ?>><?= icon($ic) ?><span><?= e(t($label)) ?></span></a>
     <?php endforeach; ?>
@@ -57,7 +52,7 @@ $roleName = Auth::roleLabel($role);
       <button class="nav-i" type="submit"><?= icon('logout') ?><span><?= e(t('Keluar')) ?></span></button>
     </form>
     <?php if ($user): ?>
-    <div class="me"><span class="av<?= $isManager ? '' : ' t' ?>"><?= e(initials($user['name'])) ?></span><div><b><?= e($user['name']) ?></b><span>@<?= e($user['username']) ?></span></div></div>
+    <div class="me"><span class="av<?= $isSuper ? '' : ' t' ?>"><?= e(initials($user['name'])) ?></span><div><b><?= e($user['name']) ?></b><span>@<?= e($user['username']) ?></span></div></div>
     <?php endif; ?>
   </aside>
   <div class="col">
@@ -68,14 +63,10 @@ $roleName = Auth::roleLabel($role);
         <span class="only-narrow"><?= logo_mark(34) ?></span>
       <?php endif; ?>
       <h1><?= e(t($title ?? '')) ?></h1>
+      <?php if (!empty($activeYear)): ?><span class="bdg bdg-mute only-wide" title="<?= e(t('Tahun ajaran & semester aktif')) ?>"><?= e($yearLabel) ?></span><?php endif; ?>
       <?= \App\Core\View::partial('lang_switch') ?>
       <span class="rolechip<?= $roleCls ?> only-wide"><?= e($roleName) ?></span>
       <?php if ($user): ?><span class="av<?= $isSuper ? '' : ' t' ?> only-wide" title="<?= e($user['name']) ?>"><?= e(initials($user['name'])) ?></span><?php endif; ?>
-      <?php if (!$isManager): ?>
-      <form method="post" action="<?= e(url('keluar')) ?>" class="only-narrow" data-confirm="<?= e(t('Keluar dari akun ini?')) ?>"><?= csrf_field() ?>
-        <button class="iconbtn plain" type="submit" aria-label="<?= e(t('Keluar')) ?>"><?= icon('logout') ?></button>
-      </form>
-      <?php endif; ?>
     </header>
     <main class="main" id="main">
       <div class="pad"><?= $content ?></div>
@@ -84,13 +75,10 @@ $roleName = Auth::roleLabel($role);
       <?php foreach ($bottom as [$key, $path, $ic, $label]): ?>
         <a class="<?= $active === $key ? 'on' : '' ?>" href="<?= e(url($path)) ?>"><?= icon($ic) ?><span><?= e(t($label)) ?></span></a>
       <?php endforeach; ?>
-      <?php if ($isManager): ?>
-        <button type="button" class="<?= $moreActive ? 'on' : '' ?>" data-open="more-menu"><?= icon('menu') ?><span><?= e(t('Lainnya')) ?></span></button>
-      <?php endif; ?>
+      <button type="button" class="<?= $moreActive ? 'on' : '' ?>" data-open="more-menu"><?= icon('menu') ?><span><?= e(t('Lainnya')) ?></span></button>
     </nav>
   </div>
 </div>
-<?php if ($isManager): ?>
 <div class="ov" id="more-menu" hidden role="dialog" aria-modal="true" aria-label="<?= e(t('Menu lainnya')) ?>">
   <div class="sheet">
     <div class="grab"></div>
@@ -101,7 +89,6 @@ $roleName = Auth::roleLabel($role);
     </div>
   </div>
 </div>
-<?php endif; ?>
 <?= \App\Core\View::partial('confirm') ?>
 <?= \App\Core\View::partial('toasts') ?>
 <?php foreach (\App\Core\View::scripts() as $s): ?><script src="<?= e(asset($s)) ?>" defer></script>

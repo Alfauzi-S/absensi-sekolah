@@ -546,3 +546,8 @@ code{font-family:var(--f-mono);font-size:12.5px;color:var(--cyan-ink);word-break
 @media (max-width:699px){.hero .art{display:none}}
 .other-fld{margin-top:8px}
 .fld .lbl .req{color:var(--bad-ink);margin-left:3px}
+/* Fase 1: kartu statistik yang bisa diklik, filter jadwal, grid jadwal */
+a.stat{text-decoration:none;color:inherit}
+a.stat:hover{border-color:var(--cyan)}
+.filters .frow>.btn{flex:0 0 auto}
+.chip input[type=checkbox]{accent-color:var(--navy)}

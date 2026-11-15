@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Core\Auth;
 use App\Core\Database as DB;
 
 final class User
@@ -22,25 +23,48 @@ final class User
         return (bool) DB::value("SELECT id FROM users WHERE role = 'super' LIMIT 1");
     }
 
-    /** Daftar akun Admin Presensi dan Admin Event beserta event dan jumlah scan. */
-    public static function admins(?string $role = null): array
+    /** Semua akun (kecuali, bila diminta, difilter per peran), dengan jumlah kelas perwalian dan jadwal mengajar aktif. */
+    public static function all(?string $role = null, string $q = ''): array
     {
-        $assign = DB::tableExists('event_admin_assignments')
-            ? '(SELECT COUNT(*) FROM event_admin_assignments a WHERE a.user_id = u.id)'
-            : '0';
-        $roles = $role !== null ? [$role] : ['admin', 'event'];
+        $year = AcademicYear::active();
+        $sem = Semester::active();
+        $w = ['1 = 1'];
+        $p = [];
+        if ($role !== null && $role !== '') {
+            $w[] = 'u.role = ?';
+            $p[] = $role;
+        }
+        if ($q !== '') {
+            $w[] = '(u.name LIKE ? OR u.username LIKE ? OR u.nip LIKE ?)';
+            array_push($p, '%' . $q . '%', '%' . $q . '%', '%' . $q . '%');
+        }
         return DB::all(
-            "SELECT u.*, e.name AS event_name, {$assign} AS assignment_count,
-                (SELECT COUNT(*) FROM participants p WHERE p.checked_in_by = u.id AND p.method IN ('scan', 'cari')) AS scan_count
-             FROM users u LEFT JOIN events e ON e.id = u.event_id
-             WHERE u.role IN (" . implode(',', array_fill(0, count($roles), '?')) . ') ORDER BY u.status ASC, u.role ASC, u.name ASC',
-            $roles
+            'SELECT u.*,
+                (SELECT COUNT(*) FROM classes c WHERE c.homeroom_teacher_id = u.id AND c.academic_year_id = ' . ($year ? (int) $year['id'] : 0) . ') AS homeroom_count,
+                (SELECT COUNT(*) FROM schedules h WHERE h.teacher_id = u.id AND h.semester_id = ' . ($sem ? (int) $sem['id'] : 0) . ') AS schedule_count
+             FROM users u WHERE ' . implode(' AND ', $w) . ' ORDER BY u.status ASC, u.role ASC, u.name ASC',
+            $p
         );
     }
 
-    public static function scanCount(int $id): int
+    /** Daftar guru aktif untuk pilihan wali kelas / pengampu. */
+    public static function teachers(): array
     {
-        return (int) DB::value("SELECT COUNT(*) FROM participants WHERE checked_in_by = ? AND method IN ('scan', 'cari')", [$id]);
+        return DB::all("SELECT id, name, nip FROM users WHERE role = 'guru' AND status = 'Aktif' ORDER BY name ASC");
+    }
+
+    public static function findTeacherByNip(string $nip): ?array
+    {
+        return DB::one("SELECT * FROM users WHERE role = 'guru' AND nip = ?", [$nip]);
+    }
+
+    public static function countByRole(): array
+    {
+        $out = array_fill_keys(Auth::ROLES, 0);
+        foreach (DB::all('SELECT role, COUNT(*) AS n FROM users GROUP BY role') as $r) {
+            $out[$r['role']] = (int) $r['n'];
+        }
+        return $out;
     }
 
     public static function create(array $data): int
@@ -50,7 +74,8 @@ final class User
             'username' => strtolower($data['username']),
             'password_hash' => password_hash($data['password'], PASSWORD_DEFAULT),
             'role' => $data['role'],
-            'event_id' => $data['event_id'] ?: null,
+            'nip' => ($data['nip'] ?? '') !== '' ? $data['nip'] : null,
+            'phone' => ($data['phone'] ?? '') !== '' ? $data['phone'] : null,
             'status' => $data['status'] ?? 'Aktif',
             'must_change_password' => (int) ($data['must_change_password'] ?? 0),
             'created_at' => now(),
@@ -83,5 +108,18 @@ final class User
             $out .= $chars[random_int(0, strlen($chars) - 1)];
         }
         return $out;
+    }
+
+    /** Username unik dari nama: "Sari Dewi" → sari.dewi, sari.dewi2, … */
+    public static function suggestUsername(string $name): string
+    {
+        $base = strtolower(trim(preg_replace('/[^a-z0-9]+/i', '.', $name) ?? '', '.'));
+        $base = mb_substr($base ?: 'pengguna', 0, 30);
+        $u = $base;
+        $i = 2;
+        while (self::findByUsername($u)) {
+            $u = $base . $i++;
+        }
+        return $u;
     }
 }

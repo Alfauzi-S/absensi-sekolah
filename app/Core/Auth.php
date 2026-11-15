@@ -9,11 +9,25 @@ use App\Models\User;
 final class Auth
 {
     public const SUPER = 'super';
-    public const ADMIN = 'admin';
-    /** Admin Event: mengelola event yang ditugaskan lewat tabel event_admin_assignments. */
-    public const EVENT = 'event';
+    public const KEPSEK = 'kepsek';
+    public const TU = 'tu';
+    public const GURU = 'guru';
 
-    public const ROLE_LABELS = [self::SUPER => 'Super Admin', self::EVENT => 'Admin Event', self::ADMIN => 'Admin Presensi'];
+    public const ROLES = [self::SUPER, self::KEPSEK, self::TU, self::GURU];
+
+    public const ROLE_LABELS = [
+        self::SUPER => 'Super Admin',
+        self::KEPSEK => 'Kepala Sekolah',
+        self::TU => 'TU / Staff',
+        self::GURU => 'Guru',
+    ];
+
+    public const ROLE_HINTS = [
+        self::SUPER => 'Semua akses: pengaturan sekolah, akun, perangkat, data master, audit log.',
+        self::KEPSEK => 'Melihat dashboard dan rekap seluruh sekolah; tidak mengubah data.',
+        self::TU => 'Mengelola siswa, kelas, ruangan, jadwal, kartu QR, izin, dan rekap semua kelas.',
+        self::GURU => 'Melihat kelas yang diajar; wali kelas mengelola kelas perwaliannya.',
+    ];
 
     private static ?array $user = null;
     private static bool $loaded = false;
@@ -36,11 +50,17 @@ final class Auth
         return self::$user = $user;
     }
 
+    /** Dipakai pengujian: pasang pengguna tanpa sesi. */
+    public static function impersonate(?array $user): void
+    {
+        self::$user = $user;
+        self::$loaded = true;
+    }
+
     public static function login(array $user): void
     {
         session_regenerate_id(true);
         $_SESSION['uid'] = (int) $user['id'];
-        unset($_SESSION['ev']);
         self::$user = $user;
         self::$loaded = true;
         User::touchLogin((int) $user['id']);
@@ -76,13 +96,18 @@ final class Auth
             redirect('masuk');
         }
         if ($roles && !in_array($user['role'], $roles, true)) {
-            if (is_api_request()) {
-                json_out(['ok' => false, 'state' => 'forbidden', 'message' => t('Akun ini tidak memiliki akses.')], 403);
-            }
-            http_response_code(403);
-            View::render('errors/forbidden', ['title' => t('Akses ditolak'), 'active' => '', 'user' => $user], 'app');
-            exit;
+            self::forbidden($user);
         }
         return $user;
+    }
+
+    public static function forbidden(array $user): never
+    {
+        if (is_api_request()) {
+            json_out(['ok' => false, 'state' => 'forbidden', 'message' => t('Akun ini tidak memiliki akses.')], 403);
+        }
+        http_response_code(403);
+        View::render('errors/forbidden', ['title' => t('Akses ditolak'), 'active' => '', 'user' => $user], 'app');
+        exit;
     }
 }

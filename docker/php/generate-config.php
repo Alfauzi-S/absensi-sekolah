@@ -16,7 +16,7 @@ $envBool = static fn (string $key, bool $default): bool => filter_var($env($key,
 $envInt = static fn (string $key, int $default): int => (int) $env($key, (string) $default);
 
 $config = [
-    'app_name' => $env('APP_NAME', 'SmartCity Attendance'),
+    'app_name' => $env('APP_NAME', 'Absensi Sekolah'),
 
     // Kosongkan agar alamat terdeteksi otomatis (Host + X-Forwarded-Proto
     // diteruskan oleh Nginx proxy di depan aplikasi).
@@ -39,7 +39,7 @@ $config = [
         'sqlite_path' => $appDir . '/storage/database.sqlite',
     ],
 
-    'session_name' => $env('APP_SESSION_NAME', 'sca_session'),
+    'session_name' => $env('APP_SESSION_NAME', 'absensi_session'),
     'contact_phone' => $env('APP_CONTACT_PHONE'),
 
 ];

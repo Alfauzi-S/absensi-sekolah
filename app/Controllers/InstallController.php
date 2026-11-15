@@ -79,9 +79,9 @@ final class InstallController extends Controller
                 if (User::hasSuper()) {
                     abort(404, 'Halaman tidak ditemukan');
                 }
-                $id = User::create(['name' => $old['name'], 'username' => $old['username'], 'password' => $password, 'role' => Auth::SUPER, 'event_id' => null]);
+                $id = User::create(['name' => $old['name'], 'username' => $old['username'], 'password' => $password, 'role' => Auth::SUPER]);
                 $super = User::find($id);
-                $demo = $old['demo'] === '1' ? DemoSeeder::run($super) : [];
+                $demo = $old['demo'] === '1' ? DemoSeeder::run($super)['accounts'] : [];
                 Auth::login($super);
                 $this->render('install/done', ['title' => t('Instalasi selesai'), 'demo' => $demo, 'username' => $old['username']], 'bare');
                 return;
