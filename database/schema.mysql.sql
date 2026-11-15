@@ -95,6 +95,23 @@ CREATE TABLE IF NOT EXISTS class_members (
   CONSTRAINT fk_member_ay FOREIGN KEY (academic_year_id) REFERENCES academic_years (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Kartu QR siswa: kode acak 12 karakter (bukan NIS), berversi; kartu lama dicabut saat diganti
+CREATE TABLE IF NOT EXISTS cards (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  student_id INT UNSIGNED NOT NULL,
+  code VARCHAR(16) NOT NULL,
+  version SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+  status ENUM('active','revoked') NOT NULL DEFAULT 'active',
+  issued_by INT UNSIGNED NULL,
+  issued_at DATETIME NOT NULL,
+  printed_at DATETIME NULL,
+  revoked_at DATETIME NULL,
+  revoke_reason VARCHAR(120) NULL,
+  UNIQUE KEY uq_cards_code (code),
+  KEY idx_cards_student (student_id, status),
+  CONSTRAINT fk_cards_student FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS subjects (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   code VARCHAR(20) NOT NULL,

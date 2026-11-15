@@ -4,10 +4,12 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Models\AuditLog;
+use App\Models\Card;
 use App\Models\SchoolClass;
 use App\Models\Student;
 use App\Services\Access;
 use App\Services\Exporter;
+use App\Services\Photo;
 use App\Services\Validator;
 
 final class StudentController extends Controller
@@ -82,8 +84,36 @@ final class StudentController extends Controller
             SchoolClass::addMember((int) $d['class_id'], $id, (int) $year['id']);
         }
         AuditLog::add($user, 'student.create', $d['class_id'] !== '' ? (int) $d['class_id'] : null, 'student', $id, ['nis' => $d['nis'], 'name' => $d['full_name']]);
+        $this->savePhoto($user, $id);
         flash('ok', 'Siswa ditambahkan', $d['full_name']);
         redirect('admin/siswa/' . $id);
+    }
+
+    /** Simpan foto bila ada unggahan di form; kesalahan ditampilkan sebagai peringatan, data siswa tetap tersimpan. */
+    private function savePhoto(array $user, int $studentId): void
+    {
+        $f = $_FILES['photo'] ?? null;
+        if (!$f || ($f['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+            return;
+        }
+        $err = Photo::store($studentId, $f);
+        if ($err !== null) {
+            flash('warn', 'Foto tidak tersimpan', $err);
+            return;
+        }
+        Student::setPhoto($studentId, 'photos/' . $studentId . '.jpg');
+        AuditLog::add($user, 'student.photo', null, 'student', $studentId, ['action' => 'upload']);
+    }
+
+    public function deletePhoto(string $id): void
+    {
+        $user = $this->allow('master');
+        $s = $this->findOr404($id);
+        Photo::delete((int) $s['id']);
+        Student::setPhoto((int) $s['id'], null);
+        AuditLog::add($user, 'student.photo', null, 'student', $s['id'], ['action' => 'delete']);
+        flash('ok', 'Foto dihapus');
+        redirect('admin/siswa/' . $s['id']);
     }
 
     private function findOr404(string $id): array
@@ -103,6 +133,8 @@ final class StudentController extends Controller
             'title' => t('Detail Siswa'), 'active' => 'students', 'back' => 'admin/siswa', 's' => $s, 'class' => $class,
             'history' => Student::classHistory((int) $s['id']),
             'canManage' => Access::can($user, 'master'),
+            'card' => Card::activeFor((int) $s['id']), 'cards' => Card::history((int) $s['id']),
+            'hasPhoto' => Photo::exists((int) $s['id']),
         ]);
     }
 
@@ -140,6 +172,7 @@ final class StudentController extends Controller
             SchoolClass::addMember((int) $d['class_id'], (int) $s['id'], (int) $year['id']);
         }
         AuditLog::add($user, 'student.update', $d['class_id'] !== '' ? (int) $d['class_id'] : null, 'student', $s['id'], ['nis' => $d['nis'], 'name' => $d['full_name'], 'status' => $d['status']]);
+        $this->savePhoto($user, (int) $s['id']);
         flash('ok', 'Data siswa diperbarui', $d['full_name']);
         redirect('admin/siswa/' . $s['id']);
     }
@@ -149,6 +182,7 @@ final class StudentController extends Controller
         $user = $this->allow('master');
         $s = $this->findOr404($id);
         Student::delete((int) $s['id']);
+        Photo::delete((int) $s['id']);
         AuditLog::add($user, 'student.delete', null, 'student', $s['id'], ['nis' => $s['nis'], 'name' => $s['full_name']]);
         flash('ok', 'Siswa dihapus', $s['full_name']);
         redirect('admin/siswa');

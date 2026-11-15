@@ -1,4 +1,4 @@
-# PHP-FPM untuk SmartCity Attendance.
+# PHP-FPM untuk Absensi Sekolah.
 # Versi saat ini: PHP 8.5 (aplikasi membutuhkan PHP >= 8.1, lihat README).
 FROM php:8.5-fpm-alpine
 
@@ -20,7 +20,7 @@ RUN apk add --no-cache libpng libjpeg-turbo libzip \
 
 # Konfigurasi produksi (display_errors=Off, expose_php=Off, limit upload, OPcache).
 RUN mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
-COPY docker/php/php.ini "$PHP_INI_DIR/conf.d/zz-smartcity.ini"
+COPY docker/php/php.ini "$PHP_INI_DIR/conf.d/zz-absensi.ini"
 
 # Entrypoint: membuat config/config.php dari environment variable lalu menjalankan php-fpm.
 COPY docker/php/entrypoint.sh /usr/local/bin/app-entrypoint
