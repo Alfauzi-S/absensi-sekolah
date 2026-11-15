@@ -152,8 +152,7 @@ final class EventController extends Controller
     {
         $user = Auth::require(Auth::SUPER);
         $e = $this->findOr404($id, $user, null);
-        $hasCert = DB::tableExists('cert_templates') && (int) DB::value('SELECT COUNT(*) FROM cert_templates WHERE event_id = ?', [(int) $e['id']]) > 0;
-        if (Event::participantCount((int) $e['id']) > 0 || $hasCert) {
+        if (Event::participantCount((int) $e['id']) > 0) {
             flash('bad', 'Event tidak dapat dihapus', 'Event ini sudah memiliki peserta. Ubah status menjadi Ditutup untuk mengarsipkan.');
             redirect('admin/event/' . $e['id']);
         }

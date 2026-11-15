@@ -11,7 +11,7 @@ $isEvent = $d['role'] === Auth::EVENT;
     <span class="lbl"><?= e(t('Peran')) ?><span class="req">*</span></span>
     <div class="opts">
       <label class="opt"><input type="radio" name="role" value="<?= Auth::ADMIN ?>"<?= checked($d['role'], Auth::ADMIN) ?>><span class="rd"></span><span class="ot"><b><?= e(t('Admin Presensi')) ?></b><span><?= e(t('Memindai QR dan melihat peserta satu event.')) ?></span></span></label>
-      <?php if ($migrated): ?><label class="opt"><input type="radio" name="role" value="<?= Auth::EVENT ?>"<?= checked($d['role'], Auth::EVENT) ?>><span class="rd"></span><span class="ot"><b><?= e(t('Admin Event')) ?></b><span><?= e(t('Mengelola event yang ditugaskan: peserta, laporan, dan sertifikat sesuai izin.')) ?></span></span></label><?php endif; ?>
+      <?php if ($migrated): ?><label class="opt"><input type="radio" name="role" value="<?= Auth::EVENT ?>"<?= checked($d['role'], Auth::EVENT) ?>><span class="rd"></span><span class="ot"><b><?= e(t('Admin Event')) ?></b><span><?= e(t('Mengelola event yang ditugaskan: peserta dan laporan sesuai izin.')) ?></span></span></label><?php endif; ?>
     </div>
     <?= field_error($errors, 'role') ?>
   </div>

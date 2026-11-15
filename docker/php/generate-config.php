@@ -42,13 +42,6 @@ $config = [
     'session_name' => $env('APP_SESSION_NAME', 'sca_session'),
     'contact_phone' => $env('APP_CONTACT_PHONE'),
 
-    // Sertifikat otomatis (lihat config/config.example.php untuk keterangan).
-    'cert' => [
-        'max_upload_mb' => $envInt('CERT_MAX_UPLOAD_MB', 8),
-        'batch_size' => $envInt('CERT_BATCH_SIZE', 10),
-        'search_per_10min' => $envInt('CERT_SEARCH_PER_10MIN', 30),
-        'download_fail_per_15min' => $envInt('CERT_DOWNLOAD_FAIL_PER_15MIN', 8),
-    ],
 ];
 
 $out = "<?php\n"

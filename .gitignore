@@ -7,3 +7,5 @@
 /storage/sessions/
 /.env
 /.opencode/
+/storage/.phpunit.cache/
+/node_modules/

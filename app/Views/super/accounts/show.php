@@ -63,7 +63,7 @@ $isEvent = $a['role'] === Auth::EVENT;
     </select>
     <button class="btn btn-outline" type="submit"><?= icon('plus', 16) ?><?= e(t('Tugaskan ke event')) ?></button>
   </form>
-  <p class="hint small"><?= e(t('Izin awal: semua izin operasional kecuali publikasi dan pencabutan sertifikat. Ubah setelah ditambahkan.')) ?></p>
+  <p class="hint small"><?= e(t('Izin awal: semua izin operasional. Ubah setelah ditambahkan.')) ?></p>
   <?php endif; ?>
 </div>
 <?php $mine = array_filter($logs, static fn ($l) => (string) $l['object_id'] === (string) $a['id']); ?>

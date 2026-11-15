@@ -14,6 +14,13 @@ final class AuthController extends Controller
         return in_array($user['role'], [Auth::SUPER, Auth::EVENT], true) ? 'admin' : 'petugas';
     }
 
+    /** Halaman depan: tidak ada halaman publik, langsung ke dashboard atau halaman masuk. */
+    public function home(): void
+    {
+        $user = Auth::user();
+        redirect($user ? self::homeFor($user) : 'masuk');
+    }
+
     public function form(): void
     {
         if ($user = Auth::user()) {

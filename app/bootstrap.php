@@ -19,7 +19,7 @@ spl_autoload_register(static function (string $class): void {
 
 require APP_PATH . '/helpers.php';
 if (is_file(ROOT_PATH . '/vendor/autoload.php')) {
-    require ROOT_PATH . '/vendor/autoload.php'; // TCPDF + FPDI untuk sertifikat PDF
+    require ROOT_PATH . '/vendor/autoload.php'; // TCPDF untuk cetak kartu QR (PDF)
 }
 
 $configFile = ROOT_PATH . '/config/config.php';

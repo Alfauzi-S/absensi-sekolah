@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace App\Core;
 
-use App\Models\CertVariable;
 
 /**
  * Menjalankan migrasi aditif di database/migrations/*.{mysql|sqlite}.sql satu kali saja.
@@ -73,9 +72,6 @@ final class Migrator
             Database::runFile($file);
             Database::insert('schema_migrations', ['name' => $name, 'applied_at' => now()]);
             $ran[] = $name;
-        }
-        if (Database::tableExists('cert_variables')) {
-            CertVariable::seedDefaults();
         }
         return $ran;
     }

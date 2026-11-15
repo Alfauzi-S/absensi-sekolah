@@ -329,9 +329,6 @@ function can(string $perm, ?int $eventId = null): bool
     if (!$user) {
         return false;
     }
-    if ($perm === 'cert_any' && $eventId === null) {
-        return \App\Services\Access::any($user, \App\Services\Access::CERT_ANY);
-    }
     return $eventId === null ? \App\Services\Access::any($user, $perm) : \App\Services\Access::can($user, $eventId, $perm);
 }
 
@@ -377,10 +374,4 @@ function field_error(array $errors, string $key): string
         return '';
     }
     return '<p class="msg" id="err-' . e($key) . '">' . icon('alert', 16) . '<span>' . e(t($errors[$key])) . '</span></p>';
-}
-
-/** Nomor sertifikat yang sudah di-escape, dengan titik patah baris setelah "/" agar rapi di layar sempit. */
-function cert_no(string $number): string
-{
-    return str_replace('/', '/<wbr>', e($number));
 }
