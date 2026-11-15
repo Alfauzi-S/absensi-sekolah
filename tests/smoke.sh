@@ -51,8 +51,10 @@ check_post() {
 check_post /api/scan/validate '4[0-9][0-9]'
 check_post /api/scan/save '4[0-9][0-9]'
 
-if grep -qiE 'PHP (Fatal|Warning|Parse)|Uncaught' "$TMP/server.log"; then
-  echo "Server log berisi error PHP:"; grep -iE 'PHP (Fatal|Warning|Parse)|Uncaught' "$TMP/server.log" | head; fail=1
+# Hanya error dari kode aplikasi (menyebut file di repo). Peringatan startup PHP seperti
+# "JIT is incompatible ... in Unknown on line 0" berasal dari ekstensi runner, bukan dari aplikasi.
+if grep -iE 'PHP (Fatal|Warning|Parse|Deprecated)|Uncaught' "$TMP/server.log" | grep -q "$ROOT/"; then
+  echo "Server log berisi error PHP dari aplikasi:"; grep -iE 'PHP (Fatal|Warning|Parse|Deprecated)|Uncaught' "$TMP/server.log" | grep "$ROOT/" | head; fail=1
 fi
 
 rm -f config/config.php
