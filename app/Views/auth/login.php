@@ -1,15 +1,16 @@
+<?php $appName = config('app_name', 'Absensi Sekolah'); $school = \App\Models\Setting::get('school_name'); ?>
 <div class="login">
   <div class="art">
-    <div class="row" style="position:relative"><?= logo_mark(40) ?><b style="font-family:var(--f-display);color:#fff">SmartCity Attendance</b></div>
+    <div class="row" style="position:relative"><?= logo_mark(40) ?><b style="font-family:var(--f-display);color:#fff"><?= e($appName) ?></b></div>
     <div class="stack" style="position:relative">
-      <h2><?= e(t('Presensi event yang cepat dan tercatat.')) ?></h2>
-      <p><?= e(t('Masuk sebagai Admin Presensi untuk memindai QR peserta, atau sebagai Super Admin untuk mengelola event, akun, dan laporan.')) ?></p>
+      <h2><?= e(t('Absensi siswa dengan kartu QR, cepat dan tercatat.')) ?></h2>
+      <p><?= e($school !== '' ? $school : t('Masuk sebagai Guru, Wali Kelas, TU/Staff, Kepala Sekolah, atau Super Admin sesuai akun yang diberikan sekolah.')) ?></p>
     </div>
     <img class="city" src="<?= e(asset('img/city.svg')) ?>" alt="">
   </div>
   <div class="form">
-    <div class="only-narrow row"><?= logo_mark(40) ?><b style="font-family:var(--f-display)">SmartCity Attendance</b></div>
-    <div><h2 style="font-size:26px"><?= e(t('Masuk panitia')) ?></h2><p class="muted"><?= e(t('Peserta tidak perlu login. Halaman ini khusus petugas dan Super Admin.')) ?></p></div>
+    <div class="only-narrow row"><?= logo_mark(40) ?><b style="font-family:var(--f-display)"><?= e($appName) ?></b></div>
+    <div><h2 style="font-size:26px"><?= e(t('Masuk')) ?></h2><p class="muted"><?= e(t('Siswa tidak perlu login; cukup pindai kartu QR di ruang kelas. Halaman ini untuk guru dan staf sekolah.')) ?></p></div>
     <?php if ($error !== ''): ?>
       <div class="banner bad" role="alert"><?= icon('alert') ?><div class="grow"><?= e(t($error)) ?></div></div>
     <?php endif; ?>
@@ -22,7 +23,6 @@
       <label class="chk"><input type="checkbox" data-show-password="#password"><?= e(t('Tampilkan password')) ?></label>
       <button type="submit" class="btn btn-primary lg block"><?= e(t('Masuk')) ?></button>
     </form>
-    <p class="small muted"><?= e(t('Lupa password? Hubungi Super Admin untuk membuat password sementara.')) ?></p>
-    <a class="btn btn-ghost" href="<?= e(url()) ?>"><?= icon('back', 18) ?><?= e(t('Ke halaman event')) ?></a>
+    <p class="small muted"><?= e(t('Lupa password? Hubungi Super Admin atau TU untuk membuat password sementara.')) ?></p>
   </div>
 </div>
