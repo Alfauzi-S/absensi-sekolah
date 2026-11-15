@@ -27,7 +27,7 @@ final class SchoolClass
             return [];
         }
         $w = $onlyIds === null ? '' : ' AND c.id IN (' . implode(',', array_map('intval', $onlyIds)) . ')';
-        return DB::all(self::SELECT . ' WHERE c.academic_year_id = ?' . $w . ' ORDER BY c.grade ASC, c.name ASC', [$yearId]);
+        return DB::all(self::SELECT . ' WHERE c.academic_year_id = ?' . $w . ' ORDER BY c.grade ASC, LENGTH(c.name) ASC, c.name ASC', [$yearId]);
     }
 
     public static function create(array $d): int

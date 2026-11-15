@@ -8,8 +8,8 @@ Dokumen acuan: **PRD Absensi QR Siswa** (dokumen proyek) berisi peran, alur scan
 
 | Fase | Isi | Status |
 | --- | --- | --- |
-| 0 | Salin kode asal, buang modul event/sertifikat yang tidak dipakai, CI, baseline kecepatan | Selesai (PR ini) |
-| 1 | Data master sekolah (tahun ajaran, kelas, siswa, guru, jadwal) dan 7 peran | Belum |
+| 0 | Salin kode asal, buang modul event/sertifikat yang tidak dipakai, CI, baseline kecepatan | Selesai |
+| 1 | Data master sekolah (tahun ajaran, kelas, siswa, guru, jadwal), 4 peran + wali kelas, impor Excel/CSV | Selesai (PR ini) |
 | 2 | Kartu QR siswa dan cetak massal | Belum |
 | 3 | Scanner kiosk dan inti absensi (`POST /api/scan`) | Belum |
 | 4 | Performa, roster lokal, antrean offline, metrik kecepatan scan | Belum |
@@ -17,7 +17,21 @@ Dokumen acuan: **PRD Absensi QR Siswa** (dokumen proyek) berisi peran, alur scan
 | 6 | Notifikasi WhatsApp dan portal orang tua (opsional, diatur pengurus) | Belum |
 | 7 | Pilot dan go-live | Belum |
 
-Catatan Fase 0: modul **event, peserta, dan Admin Event** dari kode asal masih ada agar aplikasi tetap bisa dijalankan dan diuji; semuanya diganti dengan kelas, siswa, dan jadwal pada Fase 1. Yang sudah dibuang: registrasi publik, tiket QR publik, seluruh modul sertifikat, dan font sertifikat.
+Catatan Fase 1: seluruh modul event/peserta dari kode asal sudah diganti dengan data sekolah. Skema baru (`database/schema.*.sql`): `settings`, `users`, `academic_years`, `semesters`, `rooms`, `classes`, `students`, `class_members`, `subjects`, `periods`, `schedules`, `holidays`, `audit_logs`.
+
+### Peran dan akses (Fase 1)
+
+| Peran | Boleh |
+| --- | --- |
+| Super Admin | Semua, termasuk akun pengguna, pengaturan sekolah, audit log |
+| TU / Staff | Kelola tahun ajaran, kelas, siswa, ruangan, mapel, jam, libur, jadwal, impor; ekspor |
+| Kepala Sekolah | Melihat semua kelas, siswa, jadwal; ekspor. Tidak mengubah data |
+| Guru | Melihat kelas yang diajar (jadwal semester aktif) atau diwalikan. Kelas lain ditolak (403) |
+| Wali kelas | Guru yang tercatat di `classes.homeroom_teacher_id`; mendapat izin `class:manage` di kelas itu (dipakai Fase 5 untuk izin/koreksi) |
+
+Pengaturan sekolah yang dipilih pengurus (PRD 4.3) disimpan di tabel `settings`: mode absensi (masuk/pulang, per jam, keduanya), jam masuk/pulang dan batas terlambat, jenis scanner (USB/kamera), hari libur mingguan, notifikasi WA (mati secara bawaan).
+
+Impor massal (`Impor Data`): siswa (`nis, nisn, nama, jk, kelas, tanggal_lahir, nama_ortu, hp_ortu`) dan jadwal (`kelas, hari, jam_mulai, jam_selesai, mapel, nip_guru, ruangan`) dari .xlsx/.csv tanpa pustaka tambahan; baris yang gagal dilaporkan per nomor baris, baris lain tetap masuk.
 
 ## Menjalankan secara lokal
 
@@ -39,8 +53,8 @@ docker compose up -d --build  # lalu buka http://<server>:8090/install
 
 | Perintah | Isi |
 | --- | --- |
-| `phpunit` | Tes unit aturan presensi (check-in atomik, tanpa catatan ganda, status final) memakai SQLite sementara |
-| `bash tests/smoke.sh` | Instal otomatis dengan data demo, buka semua halaman utama, pastikan tidak ada 500 dan halaman yang dibuang menjawab 404 |
+| `phpunit` | Tes unit (SQLite sementara): matriks akses per peran, validator, impor dengan baris rusak, bentrok jadwal, pengaturan |
+| `bash tests/smoke.sh` | Instal otomatis dengan data demo (30 kelas, 1.080 siswa, 60 guru), buka semua halaman sebagai Super Admin/TU/Kepsek/Guru, impor CSV lewat form, pastikan tidak ada 500, halaman lama 404, dan kelas lain ditolak 403 |
 | `node tests/perf/baseline-old-flow.js` | Pengukuran kecepatan alur scan lama (Playwright); hasilnya di [docs/baseline-fase-0.md](docs/baseline-fase-0.md) |
 
 CI (GitHub Actions) menjalankan lint PHP, PHPUnit, smoke test, dan build image Docker pada setiap PR.
@@ -50,10 +64,10 @@ CI (GitHub Actions) menjalankan lint PHP, PHPUnit, smoke test, dan build image D
 ```
 app/
   Core/          Router, Database (PDO), Auth, View, RateLimiter, Migrator
-  Models/        Event, Participant, User, StatusHistory, Assignment, AuditLog   (diganti di Fase 1)
-  Services/      AttendanceService, Validator, Exporter (CSV/XLSX), Access, DemoSeeder
-  Controllers/   Auth, Staff, Api, Dashboard, Event, Account, Participant, Report, Settings, Install, Audit
-  Views/         layouts, partials, auth, staff, super, install, errors
+  Models/        Setting, User, AcademicYear, Semester, SchoolClass, Student, Master (ruangan/mapel/jam/libur), Schedule, AuditLog
+  Services/      Access (izin per peran), Validator, Importer, Spreadsheet (baca CSV/XLSX), Exporter (CSV/XLSX), DemoSeeder
+  Controllers/   Auth, Install, Dashboard, Settings, Account, Audit, AcademicYear, Class, Student, Master, Schedule, Import
+  Views/         layouts, partials, auth, install, errors, admin/*, guru/*
 bin/             migrate.php
 config/          config.example.php -> salin menjadi config.php
 database/        schema.{mysql,sqlite}.sql, migrations/
@@ -65,7 +79,7 @@ vendor/          TCPDF (disertakan, untuk cetak kartu QR)
 
 ## Keamanan yang dipertahankan dari kode asal
 
-Password `password_hash`, sesi aman, CSRF di setiap POST dan API scanner, rate limit login, akses deny-by-default yang dicek di server, check-in atomik, PDO prepared statements, output di-escape, ekspor CSV aman dari formula injection, audit log.
+Password `password_hash`, sesi aman, CSRF di setiap POST, rate limit login, akses deny-by-default yang dicek di server (termasuk id kelas/siswa di URL), PDO prepared statements, output di-escape, ekspor CSV aman dari formula injection, audit log.
 
 ## Pustaka pihak ketiga
 

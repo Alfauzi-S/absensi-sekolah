@@ -22,9 +22,27 @@ final class AcademicYearController extends Controller
         }
         $this->render('admin/years/index', [
             'title' => t('Tahun Ajaran'), 'active' => 'years', 'years' => $years, 'semesters' => $semesters,
-            'errors' => $_SESSION['year_errors'] ?? [], 'old' => $_SESSION['year_old'] ?? [],
+            'errors' => $_SESSION['year_errors'] ?? [], 'old' => $this->old(),
         ]);
         unset($_SESSION['year_errors'], $_SESSION['year_old']);
+    }
+
+    /** Nilai form: dari sesi (setelah gagal validasi) atau dari query ?ubah= / ?ubah_semester= / ?semester_baru=. */
+    private function old(): array
+    {
+        if (!empty($_SESSION['year_old'])) {
+            return $_SESSION['year_old'];
+        }
+        if (query('ubah') !== '' && ($y = AcademicYear::find((int) query('ubah')))) {
+            return ['id' => $y['id'], 'name' => $y['name'], 'start_date' => $y['start_date'], 'end_date' => $y['end_date']];
+        }
+        if (query('ubah_semester') !== '' && ($s = Semester::find((int) query('ubah_semester')))) {
+            return ['semester_id' => $s['id'], 'name' => $s['name'], 'start_date' => $s['start_date'], 'end_date' => $s['end_date']];
+        }
+        if (query('semester_baru') !== '' && ($y = AcademicYear::find((int) query('semester_baru')))) {
+            return ['semester_year' => $y['id'], 'name' => 'Genap', 'start_date' => '', 'end_date' => ''];
+        }
+        return [];
     }
 
     private function back(array $errors, array $old): never

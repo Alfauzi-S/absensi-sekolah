@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Uji asap: jalankan aplikasi dengan SQLite, instal + data demo, lalu buka setiap halaman utama.
-# Gagal bila ada halaman yang mengembalikan 500, atau halaman yang sudah dihapus masih bisa dibuka.
+# Uji asap: jalankan aplikasi dengan SQLite, instal + data demo, lalu buka setiap halaman utama
+# sebagai Super Admin, TU, Kepala Sekolah, dan Guru. Memastikan tidak ada 500, halaman lama 404,
+# dan batas akses per peran (403 untuk kelas lain / halaman admin) berlaku.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -25,31 +26,77 @@ TOKEN=$(curl -s -c "$CJ" -b "$CJ" "$BASE/install" | grep -o 'name="_csrf" value=
 code=$(curl -s -o "$TMP/install.html" -w '%{http_code}' -c "$CJ" -b "$CJ" -X POST "$BASE/install" \
   --data-urlencode "_csrf=$TOKEN" --data-urlencode "name=Super Admin" --data-urlencode "username=superadmin" \
   --data-urlencode "password=SmokeTest12345" --data-urlencode "password_confirm=SmokeTest12345" --data-urlencode "demo=1")
-[ "$code" = "200" ] || { echo "Instalasi gagal: HTTP $code"; cat "$TMP/install.html" | head -50; exit 1; }
+[ "$code" = "200" ] || { echo "Instalasi gagal: HTTP $code"; head -50 "$TMP/install.html"; exit 1; }
 
 fail=0
 check() { # path expected-regex
-  local got; got=$(curl -s -o /dev/null -w '%{http_code}' -b "$CJ" "$BASE$1")
-  if [[ "$got" =~ ^($2)$ ]]; then printf '  ok   %-34s %s\n' "$1" "$got"; else printf '  FAIL %-34s %s (harap %s)\n' "$1" "$got" "$2"; fail=1; fi
+  local got; got=$(curl -s -o "$TMP/last.html" -w '%{http_code}' -b "$CJ" "$BASE$1")
+  if [[ "$got" =~ ^($2)$ ]]; then printf '  ok   %-40s %s\n' "$1" "$got"; else printf '  FAIL %-40s %s (harap %s)\n' "$1" "$got" "$2"; fail=1; fi
 }
+login() { # username password
+  rm -f "$CJ"
+  local tok; tok=$(curl -s -c "$CJ" -b "$CJ" "$BASE/masuk" | grep -o 'name="_csrf" value="[^"]*"' | cut -d'"' -f4)
+  local got; got=$(curl -s -o /dev/null -w '%{http_code}' -c "$CJ" -b "$CJ" -X POST "$BASE/masuk" \
+    --data-urlencode "_csrf=$tok" --data-urlencode "username=$1" --data-urlencode "password=$2")
+  [[ "$got" =~ ^30[123]$ ]] || { echo "  FAIL login $1: HTTP $got"; fail=1; }
+}
+
+# Id kelas untuk uji akses guru01 (wali X-1): kelas sendiri vs kelas yang tidak diajar/diwalikan.
+read -r OWN OTHER STUDENT_OWN STUDENT_OTHER < <(php -r '
+$pdo = new PDO("sqlite:" . $argv[1]);
+$g = (int) $pdo->query("SELECT id FROM users WHERE username = \"guru01\"")->fetchColumn();
+$own = (int) $pdo->query("SELECT id FROM classes WHERE homeroom_teacher_id = $g")->fetchColumn();
+$other = (int) $pdo->query("SELECT c.id FROM classes c WHERE c.homeroom_teacher_id <> $g AND NOT EXISTS (SELECT 1 FROM schedules h WHERE h.class_id = c.id AND h.teacher_id = $g) ORDER BY c.id DESC LIMIT 1")->fetchColumn();
+$so = (int) $pdo->query("SELECT student_id FROM class_members WHERE class_id = $own LIMIT 1")->fetchColumn();
+$st = (int) $pdo->query("SELECT student_id FROM class_members WHERE class_id = $other LIMIT 1")->fetchColumn();
+echo "$own $other $so $st\n";' "$TMP/smoke.sqlite")
+echo "Kelas guru01: sendiri=#$OWN lain=#$OTHER"
 
 echo "Halaman Super Admin:"
-for p in /admin /admin/event /admin/event/1 /admin/event/baru /admin/akun /admin/akun/baru /admin/akun/2 \
-         /admin/peserta /admin/peserta/1 /admin/laporan /admin/riwayat /admin/audit /admin/pengaturan \
-         /petugas/scan /petugas/peserta "/admin/ekspor?format=csv&ev=1"; do check "$p" 200; done
+for p in /admin /admin/pengaturan /admin/akun /admin/akun/baru /admin/akun/2 /admin/akun/2/ubah /admin/audit \
+         /admin/tahun-ajaran "/admin/tahun-ajaran?ubah=1" /admin/kelas /admin/kelas/baru "/admin/kelas/$OWN" "/admin/kelas/$OWN/ubah" \
+         /admin/siswa "/admin/siswa?kelas=tanpa&st=all" /admin/siswa/baru "/admin/siswa/$STUDENT_OWN" "/admin/siswa/$STUDENT_OWN/ubah" \
+         "/admin/siswa/ekspor?format=csv" /admin/master/ruangan /admin/master/mapel /admin/master/jam /admin/master/libur \
+         "/admin/master/ruangan?ubah=1" /admin/jadwal "/admin/jadwal?kelas=$OWN" "/admin/jadwal/baru?kelas=$OWN" /admin/jadwal/1/ubah \
+         /admin/impor "/admin/impor/template/siswa?format=csv" "/admin/impor/template/jadwal?format=csv"; do check "$p" 200; done
 check / 30[123]
 check /install 404
+check /admin/master/lainnya 404
+check /admin/kelas/999999 404
 
-echo "Halaman yang sudah dibuang harus 404:"
-for p in /sertifikat /v/abc /admin/sertifikat /e/demo /e/demo/daftar /t/SC12345678; do check "$p" 404; done
+echo "Halaman lama harus 404:"
+for p in /petugas /petugas/scan /admin/event /admin/peserta /admin/laporan /admin/riwayat /e/demo /sertifikat; do check "$p" 404; done
 
-echo "API scan (tanpa CSRF harus ditolak, bukan 500):"
-check_post() {
-  local got; got=$(curl -s -o /dev/null -w '%{http_code}' -b "$CJ" -H 'Content-Type: application/json' -X POST "$BASE$1" -d '{}')
-  if [[ "$got" =~ ^($2)$ ]]; then printf '  ok   %-34s %s\n' "$1" "$got"; else printf '  FAIL %-34s %s (harap %s)\n' "$1" "$got" "$2"; fail=1; fi
-}
-check_post /api/scan/validate '4[0-9][0-9]'
-check_post /api/scan/save '4[0-9][0-9]'
+echo "Impor CSV siswa (2 baris benar, 1 baris rusak) lewat form:"
+printf 'nis,nisn,nama,jk,kelas\n99901,,Siswa Impor Satu,L,X-1\n99902,,Siswa Impor Dua,P,X-1\n,,Tanpa NIS,X,X-1\n' > "$TMP/siswa.csv"
+tok=$(curl -s -b "$CJ" "$BASE/admin/impor" | grep -o 'name="_csrf" value="[^"]*"' | head -1 | cut -d'"' -f4)
+got=$(curl -s -o /dev/null -w '%{http_code}' -b "$CJ" -c "$CJ" -X POST "$BASE/admin/impor/siswa" -F "_csrf=$tok" -F "mode=update" -F "file=@$TMP/siswa.csv")
+[[ "$got" =~ ^30[123]$ ]] && printf '  ok   %-40s %s\n' "POST /admin/impor/siswa" "$got" || { printf '  FAIL POST /admin/impor/siswa %s\n' "$got"; fail=1; }
+curl -s -b "$CJ" "$BASE/admin/impor" > "$TMP/impor.html"
+grep -q "Siswa Impor" <(curl -s -b "$CJ" "$BASE/admin/siswa?q=Siswa+Impor") && echo "  ok   siswa hasil impor muncul di daftar" || { echo "  FAIL siswa hasil impor tidak muncul"; fail=1; }
+grep -q 'Tanpa NIS\|Baris' "$TMP/impor.html" && echo "  ok   baris gagal dilaporkan" || { echo "  FAIL laporan baris gagal tidak muncul"; fail=1; }
+
+echo "TU / Staff:"
+login tu.sekolah tu12345678
+for p in /admin /admin/siswa /admin/siswa/baru /admin/kelas "/admin/kelas/$OTHER" /admin/jadwal /admin/impor /admin/tahun-ajaran /admin/master/jam /admin/pengaturan; do check "$p" 200; done
+for p in /admin/akun /admin/audit; do check "$p" 403; done
+
+echo "Kepala Sekolah (hanya lihat):"
+login kepsek kepsek12345
+for p in /admin /admin/siswa /admin/kelas "/admin/kelas/$OTHER" /admin/jadwal "/admin/siswa/ekspor?format=csv"; do check "$p" 200; done
+for p in /admin/siswa/baru /admin/kelas/baru /admin/impor /admin/akun /admin/audit /admin/master/ruangan /admin/tahun-ajaran; do check "$p" 403; done
+
+echo "Guru (wali kelas X-1):"
+login guru01 guru12345
+for p in /admin /admin/kelas "/admin/kelas/$OWN" "/admin/siswa?kelas=$OWN" "/admin/siswa/$STUDENT_OWN" "/admin/jadwal?kelas=$OWN" /admin/pengaturan; do check "$p" 200; done
+for p in "/admin/kelas/$OTHER" "/admin/siswa?kelas=$OTHER" "/admin/siswa/$STUDENT_OTHER" "/admin/jadwal?kelas=$OTHER" \
+         /admin/siswa/baru "/admin/kelas/$OWN/ubah" /admin/impor /admin/akun /admin/audit /admin/master/jam /admin/tahun-ajaran; do check "$p" 403; done
+
+echo "Tanpa login:"
+rm -f "$CJ"
+check /admin 30[123]
+check /admin/siswa 30[123]
+check /masuk 200
 
 # Hanya error dari kode aplikasi (menyebut file di repo). Peringatan startup PHP seperti
 # "JIT is incompatible ... in Unknown on line 0" berasal dari ekstensi runner, bukan dari aplikasi.
