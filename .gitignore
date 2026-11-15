@@ -1,0 +1,9 @@
+/config/config.php
+/storage/*.sqlite
+/storage/*.sqlite-*
+/storage/logs/*.log
+/storage/cert/
+/storage/certificates/
+/storage/sessions/
+/.env
+/.opencode/
