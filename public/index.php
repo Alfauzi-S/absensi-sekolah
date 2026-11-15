@@ -12,6 +12,7 @@ use App\Controllers\AcademicYearController;
 use App\Controllers\AccountController;
 use App\Controllers\AuditController;
 use App\Controllers\AuthController;
+use App\Controllers\CardController;
 use App\Controllers\ClassController;
 use App\Controllers\DashboardController;
 use App\Controllers\ImportController;
@@ -88,6 +89,15 @@ $r->get('/admin/siswa/{id}', [StudentController::class, 'show']);
 $r->get('/admin/siswa/{id}/ubah', [StudentController::class, 'edit']);
 $r->post('/admin/siswa/{id}/ubah', [StudentController::class, 'update']);
 $r->post('/admin/siswa/{id}/hapus', [StudentController::class, 'destroy']);
+$r->get('/admin/siswa/{id}/foto', [CardController::class, 'photo']);
+$r->post('/admin/siswa/{id}/foto/hapus', [StudentController::class, 'deletePhoto']);
+
+// Kartu QR siswa (Super Admin, TU)
+$r->get('/admin/kartu', [CardController::class, 'index']);
+$r->get('/admin/kartu/cetak', [CardController::class, 'print']);
+$r->post('/admin/kartu/terbitkan', [CardController::class, 'issueBulk']);
+$r->post('/admin/siswa/{id}/kartu', [CardController::class, 'issue']);
+$r->post('/admin/siswa/{id}/kartu/cabut', [CardController::class, 'revoke']);
 
 // Data master sederhana: ruangan, mapel, jam, libur
 $r->get('/admin/master/{type}', [MasterController::class, 'index']);

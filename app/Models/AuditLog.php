@@ -17,6 +17,11 @@ final class AuditLog
         'account.status' => 'Status akun diubah',
         'account.reset_password' => 'Password sementara dibuat ulang',
         'settings.update' => 'Pengaturan sekolah diubah',
+        'card.issue' => 'Kartu QR diterbitkan',
+        'card.issue_bulk' => 'Kartu QR diterbitkan massal',
+        'card.revoke' => 'Kartu QR dicabut',
+        'card.print' => 'Kartu QR dicetak (PDF)',
+        'student.photo' => 'Foto siswa diubah',
         'year.create' => 'Tahun ajaran dibuat',
         'year.update' => 'Tahun ajaran diubah',
         'year.activate' => 'Tahun ajaran diaktifkan',
@@ -44,7 +49,7 @@ final class AuditLog
     ];
 
     public const GROUPS = ['' => 'Semua', 'access.' => 'Akses ditolak', 'auth.' => 'Login', 'account.' => 'Akun', 'settings.' => 'Pengaturan',
-        'student.' => 'Siswa', 'class.' => 'Kelas', 'schedule.' => 'Jadwal', 'master.' => 'Data master', 'year.' => 'Tahun ajaran'];
+        'student.' => 'Siswa', 'class.' => 'Kelas', 'schedule.' => 'Jadwal', 'master.' => 'Data master', 'year.' => 'Tahun ajaran', 'card.' => 'Kartu QR'];
 
     public static function label(string $action): string
     {

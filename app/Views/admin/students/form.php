@@ -1,5 +1,5 @@
 <?php use App\Models\Student; $cls = static fn (string $k) => 'fld' . (isset($errors[$k]) ? ' is-err' : ''); ?>
-<form method="post" action="<?= e(url($editing ? 'admin/siswa/' . $editing['id'] . '/ubah' : 'admin/siswa/baru')) ?>" class="card narrow" novalidate data-loading="<?= e(t('Menyimpan…')) ?>">
+<form method="post" action="<?= e(url($editing ? 'admin/siswa/' . $editing['id'] . '/ubah' : 'admin/siswa/baru')) ?>" class="card narrow" enctype="multipart/form-data" novalidate data-loading="<?= e(t('Menyimpan…')) ?>">
   <?= csrf_field() ?>
   <div class="card-h"><h3><?= e($editing ? t('Ubah data :n', ['n' => $editing['full_name']]) : t('Siswa baru')) ?></h3></div>
   <div class="g-form two">
@@ -19,5 +19,6 @@
     <div class="<?= $cls('class_id') ?>"><label for="class_id"><?= e(t('Kelas (:y)', ['y' => $activeYear['name']])) ?></label><select class="inp" id="class_id" name="class_id"><option value=""><?= e(t('— Tanpa kelas —')) ?></option><?php foreach ($classes as $c): ?><option value="<?= (int) $c['id'] ?>"<?= selected($d['class_id'], $c['id']) ?>><?= e($c['name']) ?></option><?php endforeach; ?></select><?= field_error($errors, 'class_id') ?></div>
     <div class="<?= $cls('status') ?>"><label for="status"><?= e(t('Status')) ?></label><select class="inp" id="status" name="status"><?php foreach (Student::STATUSES as $s): ?><option value="<?= e($s) ?>"<?= selected($d['status'], $s) ?>><?= e(t($s)) ?></option><?php endforeach; ?></select><?= field_error($errors, 'status') ?></div>
   </div>
+  <div class="fld"><label for="photo"><?= e(t('Foto (pas foto)')) ?><span class="en"><?= e(t('opsional, JPG/PNG maks :mb MB, dipotong 3:4 otomatis', ['mb' => \App\Services\Photo::MAX_MB])) ?></span></label><input class="inp" id="photo" name="photo" type="file" accept="image/jpeg,image/png,image/webp"></div>
   <div class="acts"><a class="btn btn-ghost" href="<?= e(url($back)) ?>"><?= e(t('Batal')) ?></a><button type="submit" class="btn btn-primary"><?= e($editing ? t('Simpan perubahan') : t('Simpan siswa')) ?></button></div>
 </form>

@@ -12,6 +12,7 @@ $nav = array_values(array_filter([
     ['classes', 'admin/kelas', 'building', 'Kelas'],
     ['students', 'admin/siswa', 'users', 'Siswa'],
     ['schedules', 'admin/jadwal', 'calendar', 'Jadwal'],
+    can('master') ? ['cards', 'admin/kartu', 'qr', 'Kartu QR'] : null,
     can('master') ? ['years', 'admin/tahun-ajaran', 'history', 'Tahun Ajaran'] : null,
     can('master') ? ['master-ruangan', 'admin/master/ruangan', 'pin', 'Ruangan'] : null,
     can('master') ? ['master-mapel', 'admin/master/mapel', 'file', 'Mata Pelajaran'] : null,

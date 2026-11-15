@@ -3,6 +3,7 @@
   <?php if ($canManage): ?><div class="row">
     <a class="btn btn-outline" href="<?= e(url('admin/kelas/' . $c['id'] . '/ubah')) ?>"><?= icon('edit', 18) ?><?= e(t('Ubah')) ?></a>
     <a class="btn btn-outline" href="<?= e(url('admin/jadwal', ['kelas' => $c['id']])) ?>"><?= icon('calendar', 18) ?><?= e(t('Jadwal')) ?></a>
+    <a class="btn btn-outline" href="<?= e(url('admin/kartu/cetak', ['kelas' => $c['id']])) ?>" target="_blank"><?= icon('qr', 18) ?><?= e(t('Cetak kartu')) ?></a>
     <?php if ((int) $c['student_count'] === 0): ?><?= post_button('admin/kelas/' . $c['id'] . '/hapus', 'Hapus', [], 'btn btn-ghost', 'Hapus kelas ' . $c['name'] . '?', 'trash') ?><?php endif; ?>
   </div><?php endif; ?>
 </div>

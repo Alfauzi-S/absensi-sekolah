@@ -1,8 +1,8 @@
 <?php
 /**
  * Autoload pustaka pihak ketiga yang disertakan (tanpa perlu menjalankan composer):
- * - tecnickcom/tcpdf 6.11.4 (LGPL-3.0-or-later) untuk membuat PDF sertifikat
- * - setasign/fpdi 2.6.9 (MIT) untuk memakai PDF sebagai latar sertifikat
+ * - tecnickcom/tcpdf 6.11.4 (LGPL-3.0-or-later) untuk membuat PDF kartu QR siswa
+ * - setasign/fpdi 2.6.9 (MIT) (tidak dipakai saat ini)
  */
 declare(strict_types=1);
 
@@ -14,7 +14,7 @@ if (!defined('K_TCPDF_EXTERNAL_CONFIG')) {
     define('K_PATH_CACHE', sys_get_temp_dir() . '/');
     define('K_TCPDF_CALLS_IN_HTML', false);
     define('K_TCPDF_THROW_EXCEPTION_ERROR', true);
-    define('PDF_PRODUCER', 'SmartCity Attendance');
+    define('PDF_PRODUCER', 'Absensi Sekolah');
 }
 
 spl_autoload_register(static function (string $class): void {

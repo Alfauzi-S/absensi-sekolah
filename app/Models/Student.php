@@ -105,6 +105,11 @@ final class Student
         ];
     }
 
+    public static function setPhoto(int $id, ?string $path): void
+    {
+        DB::update('students', ['photo_path' => $path, 'updated_at' => now()], 'id = ?', [$id]);
+    }
+
     public static function delete(int $id): void
     {
         DB::run('DELETE FROM students WHERE id = ?', [$id]);

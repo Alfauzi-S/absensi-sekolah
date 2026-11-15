@@ -84,6 +84,21 @@ CREATE TABLE IF NOT EXISTS class_members (
 );
 CREATE INDEX IF NOT EXISTS idx_members_class ON class_members (class_id);
 
+-- Kartu QR siswa: kode acak 12 karakter (bukan NIS), berversi; kartu lama dicabut saat diganti
+CREATE TABLE IF NOT EXISTS cards (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  code TEXT NOT NULL UNIQUE,
+  version INTEGER NOT NULL DEFAULT 1,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','revoked')),
+  issued_by INTEGER NULL,
+  issued_at TEXT NOT NULL,
+  printed_at TEXT NULL,
+  revoked_at TEXT NULL,
+  revoke_reason TEXT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_cards_student ON cards(student_id, status);
+
 CREATE TABLE IF NOT EXISTS subjects (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   code TEXT NOT NULL UNIQUE,              -- MTK

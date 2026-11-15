@@ -58,7 +58,19 @@ for p in /admin /admin/pengaturan /admin/akun /admin/akun/baru /admin/akun/2 /ad
          /admin/siswa "/admin/siswa?kelas=tanpa&st=all" /admin/siswa/baru "/admin/siswa/$STUDENT_OWN" "/admin/siswa/$STUDENT_OWN/ubah" \
          "/admin/siswa/ekspor?format=csv" /admin/master/ruangan /admin/master/mapel /admin/master/jam /admin/master/libur \
          "/admin/master/ruangan?ubah=1" /admin/jadwal "/admin/jadwal?kelas=$OWN" "/admin/jadwal/baru?kelas=$OWN" /admin/jadwal/1/ubah \
-         /admin/impor "/admin/impor/template/siswa?format=csv" "/admin/impor/template/jadwal?format=csv"; do check "$p" 200; done
+         /admin/impor "/admin/impor/template/siswa?format=csv" "/admin/impor/template/jadwal?format=csv" /admin/kartu; do check "$p" 200; done
+
+echo "Kartu QR: terbitkan satu kelas lewat form, lalu PDF:"
+tok=$(curl -s -b "$CJ" "$BASE/admin/kartu" | grep -o 'name="_csrf" value="[^"]*"' | head -1 | cut -d'"' -f4)
+got=$(curl -s -o /dev/null -w '%{http_code}' -b "$CJ" -c "$CJ" -X POST "$BASE/admin/kartu/terbitkan" --data-urlencode "_csrf=$tok" --data-urlencode "class_id=$OWN")
+[[ "$got" =~ ^30[123]$ ]] && printf '  ok   %-40s %s\n' "POST /admin/kartu/terbitkan" "$got" || { printf '  FAIL POST /admin/kartu/terbitkan %s\n' "$got"; fail=1; }
+t0=$(date +%s%N)
+ctype=$(curl -s -o "$TMP/kartu.pdf" -w '%{content_type}' -b "$CJ" "$BASE/admin/kartu/cetak?kelas=$OWN")
+ms=$(( ($(date +%s%N) - t0) / 1000000 ))
+head -c 5 "$TMP/kartu.pdf" | grep -q '%PDF-' && [[ "$ctype" == application/pdf* ]] && printf '  ok   %-40s %s (%s ms)\n' "/admin/kartu/cetak?kelas=$OWN" "$ctype" "$ms" || { echo "  FAIL PDF kartu: $ctype"; fail=1; }
+[ "$ms" -lt 5000 ] || { echo "  FAIL PDF satu kelas > 5 detik ($ms ms)"; fail=1; }
+check "/admin/kartu/cetak?siswa=$STUDENT_OWN" 200
+check "/admin/siswa/$STUDENT_OWN/foto" 404
 check / 30[123]
 check /install 404
 check /admin/master/lainnya 404
@@ -84,13 +96,13 @@ for p in /admin/akun /admin/audit; do check "$p" 403; done
 echo "Kepala Sekolah (hanya lihat):"
 login kepsek kepsek12345
 for p in /admin /admin/siswa /admin/kelas "/admin/kelas/$OTHER" /admin/jadwal "/admin/siswa/ekspor?format=csv"; do check "$p" 200; done
-for p in /admin/siswa/baru /admin/kelas/baru /admin/impor /admin/akun /admin/audit /admin/master/ruangan /admin/tahun-ajaran; do check "$p" 403; done
+for p in /admin/siswa/baru /admin/kelas/baru /admin/impor /admin/akun /admin/audit /admin/master/ruangan /admin/tahun-ajaran /admin/kartu "/admin/kartu/cetak?kelas=$OWN"; do check "$p" 403; done
 
 echo "Guru (wali kelas X-1):"
 login guru01 guru12345
 for p in /admin /admin/kelas "/admin/kelas/$OWN" "/admin/siswa?kelas=$OWN" "/admin/siswa/$STUDENT_OWN" "/admin/jadwal?kelas=$OWN" /admin/pengaturan; do check "$p" 200; done
 for p in "/admin/kelas/$OTHER" "/admin/siswa?kelas=$OTHER" "/admin/siswa/$STUDENT_OTHER" "/admin/jadwal?kelas=$OTHER" \
-         /admin/siswa/baru "/admin/kelas/$OWN/ubah" /admin/impor /admin/akun /admin/audit /admin/master/jam /admin/tahun-ajaran; do check "$p" 403; done
+         /admin/siswa/baru "/admin/kelas/$OWN/ubah" /admin/impor /admin/akun /admin/audit /admin/master/jam /admin/tahun-ajaran /admin/kartu "/admin/kartu/cetak?kelas=$OWN" "/admin/siswa/$STUDENT_OTHER/foto"; do check "$p" 403; done
 
 echo "Tanpa login:"
 rm -f "$CJ"
