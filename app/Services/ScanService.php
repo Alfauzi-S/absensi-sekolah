@@ -3,30 +3,41 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Core\Database as DB;
 use App\Models\AcademicYear;
 use App\Models\Attendance;
 use App\Models\Card;
-use App\Models\Device;
 use App\Models\ScanLog;
-use App\Models\Session;
-use App\Models\Student;
+use App\Models\ScanMetric;
 
 /**
  * Inti absensi (PRD 5.2): satu scan → satu keputusan. Semua jalur mencatat ke scan_logs.
  *
  * Hasil (state): ok, late, dup, wrongclass, invalid, nosession.
  * Idempoten: scan_id yang sama mengembalikan jawaban yang sama tanpa mencatat ulang.
+ *
+ * Fase 4:
+ * - Jalur cepat: kartu + siswa + kelas dalam satu query, sesi ruangan dari cache singkat, satu INSERT kehadiran.
+ *   Log scan ditulis setelah jawaban dikirim (lihat flushDeferred) agar tidak menambah waktu tunggu kiosk.
+ * - Scan offline: scanned_at dari perangkat dipakai (jam saat scan, bukan jam sinkron), dikoreksi dengan selisih jam perangkat
+ *   (sent_at perangkat vs jam server). Scan yang tersinkron setelah sesinya ditutup tetap dicatat dan menimpa Alpa otomatis.
  */
 final class ScanService
 {
     public const STATES = ['ok', 'late', 'dup', 'wrongclass', 'invalid', 'nosession'];
+    public const MAX_AGE = 3 * 86400;   // scan offline diterima sampai 3 hari ke belakang
+    public const MAX_BATCH = 100;
+
+    /** @var array<int, callable():void> pekerjaan yang ditunda sampai setelah respons dikirim */
+    private static array $deferred = [];
 
     /**
      * @param array $device baris perangkat (aktif)
-     * @param array{scan_id?:string, code?:string, scanned_at?:string, metrics?:array} $body
+     * @param array{scan_id?:string, code?:string, scanned_at?:string, sent_at?:string, metrics?:array} $body
+     * @param bool $defer true = log ditulis lewat flushDeferred() (dipanggil controller setelah respons terkirim)
      * @return array jawaban JSON untuk kiosk (ok, state, message, student, status, late_minutes, …)
      */
-    public static function scan(array $device, array $body, ?string $now = null): array
+    public static function scan(array $device, array $body, ?string $now = null, bool $defer = false, ?int $offsetMs = null): array
     {
         $t0 = hrtime(true);
         $now ??= now();
@@ -37,39 +48,44 @@ final class ScanService
         }
         $raw = is_string($body['code'] ?? null) ? $body['code'] : '';
         $code = Card::normalize(mb_substr($raw, 0, 64));
-        $scannedAt = self::scannedAt($body['scanned_at'] ?? null, $now);
-        $metrics = is_array($body['metrics'] ?? null) ? array_slice($body['metrics'], 0, 12, true) : [];
-        $log = ['scan_id' => $scanId, 'device_id' => (int) $device['id'], 'code' => $code, 'scanned_at' => $scannedAt, 'metrics' => $metrics];
+        $offsetMs ??= self::clockOffsetMs($body['sent_at'] ?? null, $now);
+        $scannedAt = self::scannedAt($body['scanned_at'] ?? null, $now, $offsetMs);
+        $late = strtotime($now) - strtotime($scannedAt) > 90; // scan dari antrean offline
+        $meta = is_array($body['metrics'] ?? null) ? array_slice($body['metrics'], 0, 12, true) : [];
+        $log = ['scan_id' => $scanId, 'device_id' => (int) $device['id'], 'code' => $code, 'scanned_at' => $scannedAt, 'metrics' => $meta];
 
-        $finish = static function (array $resp, string $result, ?int $sessionId = null, ?int $studentId = null) use ($log, $t0, $scanId): array {
+        $finish = static function (array $resp, string $result, ?int $sessionId = null, ?int $studentId = null) use ($log, $t0, $scanId, $defer): array {
             $resp['t_server_ms'] = round((hrtime(true) - $t0) / 1e6, 2);
             $resp['scan_id'] = $scanId;
             $log += ['result' => $result, 'session_id' => $sessionId, 'student_id' => $studentId, 'response' => $resp, 't_server_ms' => $resp['t_server_ms']];
+            if ($defer) {
+                self::$deferred[] = static fn () => ScanLog::add($log);
+                return $resp;
+            }
             if (!ScanLog::add($log) && $scanId !== null && ($prev = ScanLog::findByScanId($scanId))) {
                 return (json_decode((string) $prev['response'], true) ?: $resp) + ['replayed' => true];
             }
             return $resp;
         };
 
-        // 1. Kartu
-        $card = Card::isValidFormat($code) ? Card::findByCode($code) : null;
+        // 1. Kartu + siswa + kelas tahun ajaran aktif (satu query)
+        $card = Card::isValidFormat($code) ? self::cardWithClass($code) : null;
         if (!$card || $card['status'] !== 'active' || $card['student_status'] !== 'Aktif') {
             return $finish(['ok' => false, 'state' => 'invalid', 'message' => t('Kartu tidak berlaku, hubungi TU')], 'invalid', null, $card ? (int) $card['student_id'] : null);
         }
         $studentId = (int) $card['student_id'];
+        $classId = (int) ($card['class_id'] ?? 0);
+        $class = $classId ? ['id' => $classId, 'name' => $card['class_name']] : null;
 
-        // 2. Sesi di ruangan perangkat
+        // 2. Sesi di ruangan perangkat pada jam scan (scan offline: termasuk sesi yang sudah ditutup)
         $roomId = (int) ($device['room_id'] ?? 0);
-        $sessions = $roomId > 0 ? SessionResolver::resolve($roomId, $now) : [];
+        $sessions = $roomId > 0 ? SessionResolver::resolve($roomId, $scannedAt, $late) : [];
         if (!$sessions) {
             return $finish(['ok' => false, 'state' => 'nosession', 'message' => t('Belum ada jadwal di ruangan ini'),
-                'student' => self::studentOut($card, null)], 'nosession', null, $studentId);
+                'student' => self::studentOut($card, $class)], 'nosession', null, $studentId);
         }
 
         // 3. Kelas siswa vs kelas sesi
-        $year = AcademicYear::active();
-        $class = $year ? Student::classIn($studentId, (int) $year['id']) : null;
-        $classId = $class ? (int) $class['id'] : 0;
         $matching = array_values(array_filter($sessions, static fn (array $s) => (int) $s['class_id'] === $classId));
         if (!$matching) {
             $primary = $sessions[0];
@@ -95,7 +111,68 @@ final class ScanService
         return $finish($out, $state, (int) $primary['id'], $studentId);
     }
 
-    /** Sisipkan kehadiran secara atomik. @return array{state:string, status:string, late_minutes:int, scanned_at:string} */
+    /**
+     * Kirim beberapa scan sekaligus (antrean offline). Idempoten per scan_id: batch yang sama boleh dikirim berkali-kali.
+     * @param array{sent_at?:string, scans?:array, metrics?:array, queue_size?:int} $body
+     * @return array{ok:bool, results:array, clock_offset_ms:int, metrics_saved:int}
+     */
+    public static function batch(array $device, array $body, ?string $now = null, bool $defer = false): array
+    {
+        $now ??= now();
+        $offsetMs = self::clockOffsetMs($body['sent_at'] ?? null, $now);
+        $results = [];
+        $scans = is_array($body['scans'] ?? null) ? array_slice(array_values($body['scans']), 0, self::MAX_BATCH) : [];
+        foreach ($scans as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $results[] = self::scan($device, $item, $now, $defer, $offsetMs);
+        }
+        $saved = 0;
+        if (is_array($body['metrics'] ?? null) && $body['metrics']) {
+            $metrics = array_slice(array_values($body['metrics']), 0, 200);
+            $deviceId = (int) $device['id'];
+            $job = static fn (): int => ScanMetric::addMany($deviceId, $metrics);
+            if ($defer) {
+                self::$deferred[] = $job;
+                $saved = count($metrics);
+            } else {
+                $saved = $job();
+            }
+        }
+        return ['ok' => true, 'results' => $results, 'clock_offset_ms' => $offsetMs, 'metrics_saved' => $saved, 'server_time' => $now];
+    }
+
+    /** Jalankan pekerjaan tertunda (log scan, metrik). Dipanggil setelah respons dikirim ke kiosk. */
+    public static function flushDeferred(): void
+    {
+        $jobs = self::$deferred;
+        self::$deferred = [];
+        foreach ($jobs as $job) {
+            try {
+                $job();
+            } catch (\Throwable $e) {
+                error_log('scan deferred gagal: ' . $e->getMessage());
+            }
+        }
+    }
+
+    /** Kartu beserta siswa dan kelasnya pada tahun ajaran aktif; null bila kode tidak dikenal. */
+    public static function cardWithClass(string $code): ?array
+    {
+        $year = AcademicYear::active();
+        return DB::one('SELECT c.student_id, c.status, c.version, s.nis, s.full_name, s.status AS student_status, s.photo_path, m.class_id, k.name AS class_name
+            FROM cards c JOIN students s ON s.id = c.student_id
+            LEFT JOIN class_members m ON m.student_id = s.id AND m.academic_year_id = ?
+            LEFT JOIN classes k ON k.id = m.class_id
+            WHERE c.code = ?', [$year ? (int) $year['id'] : 0, $code]);
+    }
+
+    /**
+     * Sisipkan kehadiran secara atomik. Bila baris yang ada adalah Alpa otomatis (sesi sudah ditutup sebelum scan offline tersinkron),
+     * scan menang (PRD: scan > Alpa otomatis) dan baris itu diperbarui.
+     * @return array{state:string, status:string, late_minutes:int, scanned_at:string}
+     */
     public static function record(array $session, int $studentId, int $classId, string $scannedAt, ?int $deviceId, ?string $scanId, string $method = 'scan', ?int $userId = null): array
     {
         [$status, $late] = self::judge($session, $scannedAt);
@@ -105,6 +182,15 @@ final class ScanService
         ]);
         if ($id === null) {
             $prev = Attendance::find((int) $session['id'], $studentId);
+            if ($prev && $prev['status'] === 'A' && $prev['method'] === 'auto') {
+                $n = DB::update('attendances', ['status' => $status, 'scanned_at' => $scannedAt, 'late_minutes' => $late, 'method' => $method,
+                    'device_id' => $deviceId, 'scan_id' => $scanId, 'changed_by' => $userId, 'changed_at' => now(), 'note' => 'Scan tersinkron setelah sesi ditutup'],
+                    "id = ? AND status = 'A' AND method = 'auto'", [(int) $prev['id']]);
+                if ($n === 1) {
+                    return ['state' => $status === 'T' ? 'late' : 'ok', 'status' => $status, 'late_minutes' => $late, 'scanned_at' => $scannedAt];
+                }
+                $prev = Attendance::find((int) $session['id'], $studentId);
+            }
             return ['state' => 'dup', 'status' => (string) $prev['status'], 'late_minutes' => (int) $prev['late_minutes'], 'scanned_at' => (string) ($prev['scanned_at'] ?: $prev['created_at'])];
         }
         return ['state' => $status === 'T' ? 'late' : 'ok', 'status' => $status, 'late_minutes' => $late, 'scanned_at' => $scannedAt];
@@ -130,8 +216,24 @@ final class ScanService
         return is_string($v) && preg_match('/^[A-Za-z0-9_-]{8,64}$/', $v) ? $v : null;
     }
 
-    /** Waktu scan dari kiosk dipakai bila masuk akal (≤ 24 jam ke belakang, tidak di masa depan); selain itu waktu server. */
-    private static function scannedAt(mixed $v, string $now): string
+    /**
+     * Selisih jam perangkat terhadap server (ms, positif = jam perangkat tertinggal), dari sent_at yang diisi perangkat tepat sebelum mengirim.
+     * Selisih kecil (< 2 detik, termasuk waktu tempuh jaringan) dianggap nol; selisih > 12 jam dianggap salah zona dan tetap dikoreksi.
+     */
+    public static function clockOffsetMs(mixed $sentAt, string $now): int
+    {
+        if (!is_string($sentAt) || $sentAt === '' || ($ts = strtotime($sentAt)) === false) {
+            return 0;
+        }
+        $diff = (strtotime($now) - $ts) * 1000;
+        return abs($diff) < 2000 ? 0 : $diff;
+    }
+
+    /**
+     * Jam scan menurut jam server: scanned_at perangkat + selisih jam perangkat. Dipakai bila masuk akal
+     * (≤ MAX_AGE ke belakang, tidak di masa depan); selain itu jam server saat diterima.
+     */
+    private static function scannedAt(mixed $v, string $now, int $offsetMs = 0): string
     {
         if (!is_string($v) || $v === '') {
             return $now;
@@ -140,8 +242,9 @@ final class ScanService
         if ($ts === false) {
             return $now;
         }
+        $ts += intdiv($offsetMs, 1000);
         $nowTs = strtotime($now);
-        if ($ts > $nowTs + 120 || $ts < $nowTs - 86400) {
+        if ($ts > $nowTs + 120 || $ts < $nowTs - self::MAX_AGE) {
             return $now;
         }
         return date('Y-m-d H:i:s', min($ts, $nowTs));
@@ -150,12 +253,13 @@ final class ScanService
     public static function studentOut(array $card, ?array $class): array
     {
         return ['id' => (int) $card['student_id'], 'name' => $card['full_name'], 'nis' => $card['nis'], 'class' => $class['name'] ?? null,
-            'photo' => Photo::exists((int) $card['student_id'])];
+            'photo' => array_key_exists('photo_path', $card) ? !empty($card['photo_path']) : Photo::exists((int) $card['student_id'])];
     }
 
     public static function sessionOut(array $s): array
     {
-        return ['id' => (int) $s['id'], 'kind' => $s['kind'], 'class' => $s['class_name'], 'subject' => $s['subject_name'] ?? null,
-            'label' => SessionResolver::label($s), 'starts_at' => substr($s['starts_at'], 11, 5), 'ends_at' => substr($s['ends_at'], 11, 5), 'late_after' => substr($s['late_after'], 11, 5)];
+        return ['id' => (int) $s['id'], 'kind' => $s['kind'], 'class' => $s['class_name'], 'class_id' => (int) $s['class_id'], 'subject' => $s['subject_name'] ?? null,
+            'label' => SessionResolver::label($s), 'scan_from' => $s['scan_from'], 'starts' => $s['starts_at'], 'late' => $s['late_after'], 'ends' => $s['ends_at'],
+            'starts_at' => substr($s['starts_at'], 11, 5), 'ends_at' => substr($s['ends_at'], 11, 5), 'late_after' => substr($s['late_after'], 11, 5)];
     }
 }

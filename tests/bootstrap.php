@@ -45,4 +45,4 @@ $GLOBALS['__config'] = [
 date_default_timezone_set('Asia/Makassar');
 
 \App\Core\Database::runFile(ROOT_PATH . '/database/schema.sqlite.sql');
-\App\Core\Migrator::run();
+\App\Core\Migrator::markAllApplied();

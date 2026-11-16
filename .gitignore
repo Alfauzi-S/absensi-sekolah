@@ -10,3 +10,4 @@
 /storage/.phpunit.cache/
 /node_modules/
 /storage/photos/
+/storage/perf/

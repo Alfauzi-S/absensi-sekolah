@@ -1,4 +1,4 @@
--- Absensi Sekolah: skema SQLite (pengujian / instalasi kecil). Versi 3 (Fase 1 data master, Fase 2 kartu, Fase 3 absensi).
+-- Absensi Sekolah: skema SQLite (pengujian / instalasi kecil). Versi 4 (Fase 1 data master, Fase 2 kartu, Fase 3 absensi, Fase 4 metrik).
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS settings (
@@ -150,6 +150,8 @@ CREATE TABLE IF NOT EXISTS devices (
   last_seen_at TEXT NULL,
   last_ip TEXT NULL,
   app_version TEXT NULL,
+  queue_size INTEGER NOT NULL DEFAULT 0,
+  clock_offset_ms INTEGER NULL,
   created_by INTEGER NULL,
   created_at TEXT NOT NULL,
   revoked_at TEXT NULL
@@ -223,6 +225,26 @@ CREATE TABLE IF NOT EXISTS scan_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_scanlog_time ON scan_logs (received_at);
 CREATE INDEX IF NOT EXISTS idx_scanlog_device ON scan_logs (device_id, received_at);
+
+-- Metrik kecepatan per scan dari kiosk (Fase 4): semua dalam milidetik.
+CREATE TABLE IF NOT EXISTS scan_metrics (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  scan_id TEXT NULL UNIQUE,
+  device_id INTEGER NULL,
+  source TEXT NULL,
+  result TEXT NULL,
+  t_decode_ms INTEGER NULL,
+  t_feedback_ms INTEGER NULL,
+  t_roundtrip_ms INTEGER NULL,
+  t_server_ms REAL NULL,
+  t_total_ms INTEGER NULL,
+  local_hit INTEGER NOT NULL DEFAULT 0,
+  queued INTEGER NOT NULL DEFAULT 0,
+  queue_wait_ms INTEGER NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_metrics_device ON scan_metrics (device_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_metrics_time ON scan_metrics (created_at);
 
 CREATE TABLE IF NOT EXISTS audit_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

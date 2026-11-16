@@ -27,6 +27,15 @@ final class Session
         LEFT JOIN users u ON u.id = s.teacher_id
         LEFT JOIN rooms r ON r.id = s.room_id';
 
+    /** Versi ringan (tanpa hitungan kehadiran) untuk jalur scan. */
+    private const LIGHT = 'SELECT s.*, c.name AS class_name, sb.name AS subject_name, sb.code AS subject_code
+        FROM sessions s JOIN classes c ON c.id = s.class_id LEFT JOIN subjects sb ON sb.id = s.subject_id';
+
+    public static function findLight(int $id): ?array
+    {
+        return DB::one(self::LIGHT . ' WHERE s.id = ?', [$id]);
+    }
+
     public static function find(int $id): ?array
     {
         return DB::one(self::SELECT . ' WHERE s.id = ?', [$id]);
@@ -34,7 +43,7 @@ final class Session
 
     public static function findBySlot(string $slotKey): ?array
     {
-        return DB::one(self::SELECT . ' WHERE s.slot_key = ?', [$slotKey]);
+        return DB::one(self::LIGHT . ' WHERE s.slot_key = ?', [$slotKey]);
     }
 
     /**
@@ -77,7 +86,8 @@ final class Session
             }
             throw $e;
         }
-        return self::find($id);
+        \App\Core\Cache::forgetPrefix('sessions:');
+        return self::findLight($id);
     }
 
     /** Sesi pada satu tanggal, dibatasi daftar kelas (null = semua). @param int[]|null $classIds */
@@ -106,6 +116,7 @@ final class Session
             $data['note'] = mb_substr($note, 0, 200);
         }
         DB::update('sessions', $data, 'id = ?', [$id]);
+        \App\Core\Cache::forgetPrefix('sessions:');
     }
 
     /** Daftar siswa kelas beserta kehadirannya pada sesi ini (siswa tanpa baris = belum scan). */
@@ -115,6 +126,19 @@ final class Session
             FROM class_members m JOIN students st ON st.id = m.student_id
             LEFT JOIN attendances a ON a.session_id = ? AND a.student_id = st.id
             WHERE m.class_id = ? ORDER BY st.full_name ASC', [(int) $session['id'], (int) $session['class_id']]);
+    }
+
+    /** Id siswa yang sudah tercatat hadir/terlambat per sesi (untuk roster kiosk). @param int[] $sessionIds @return array<int,int[]> */
+    public static function presentIds(array $sessionIds): array
+    {
+        $out = [];
+        if (!$sessionIds) {
+            return $out;
+        }
+        foreach (DB::all("SELECT session_id, student_id FROM attendances WHERE status IN ('H','T') AND session_id IN (" . implode(',', array_map('intval', $sessionIds)) . ')') as $r) {
+            $out[(int) $r['session_id']][] = (int) $r['student_id'];
+        }
+        return $out;
     }
 
     public static function countOnDate(string $date): int

@@ -74,8 +74,10 @@ final class InstallController extends Controller
         }
         if (!$errors) {
             try {
+                $fresh = !DB::tableExists('users');
                 DB::runFile(ROOT_PATH . '/database/schema.' . (DB::driver() === 'sqlite' ? 'sqlite' : 'mysql') . '.sql');
-                Migrator::run();
+                // Database baru: skema sudah lengkap, migrasi cukup dicatat. Database lama: jalankan migrasi yang tertunda.
+                $fresh ? Migrator::markAllApplied() : Migrator::run();
                 if (User::hasSuper()) {
                     abort(404, 'Halaman tidak ditemukan');
                 }

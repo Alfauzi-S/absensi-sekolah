@@ -36,7 +36,7 @@ final class KioskController extends Controller
             exit;
         }
         header('Content-Type: image/jpeg');
-        header('Cache-Control: private, max-age=3600');
+        header('Cache-Control: private, max-age=86400');
         header('Content-Length: ' . (string) filesize($path));
         readfile($path);
         exit;

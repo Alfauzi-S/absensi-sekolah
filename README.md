@@ -11,8 +11,8 @@ Dokumen acuan: **PRD Absensi QR Siswa** (dokumen proyek) berisi peran, alur scan
 | 0 | Salin kode asal, buang modul event/sertifikat yang tidak dipakai, CI, baseline kecepatan | Selesai |
 | 1 | Data master sekolah (tahun ajaran, kelas, siswa, guru, jadwal), 4 peran + wali kelas, impor Excel/CSV | Selesai |
 | 2 | Kartu QR siswa (kode acak 12 karakter berversi), foto siswa, cetak PDF CR80 massal | Selesai |
-| 3 | Scanner kiosk dan inti absensi (`POST /api/scan`) | Selesai (PR ini) |
-| 4 | Performa, roster lokal, antrean offline, metrik kecepatan scan | Belum |
+| 3 | Scanner kiosk dan inti absensi (`POST /api/scan`) | Selesai |
+| 4 | Performa, roster lokal, antrean offline, metrik kecepatan scan | Selesai (PR ini) |
 | 5 | Izin/sakit, koreksi, rekap, dashboard | Belum |
 | 6 | Notifikasi WhatsApp dan portal orang tua (opsional, diatur pengurus) | Belum |
 | 7 | Pilot dan go-live | Belum |
@@ -30,6 +30,16 @@ Catatan Fase 1: seluruh modul event/peserta dari kode asal sudah diganti dengan 
 | Wali kelas | Guru yang tercatat di `classes.homeroom_teacher_id`; mendapat izin `class:manage` di kelas itu (dipakai Fase 5 untuk izin/koreksi) |
 
 Pengaturan sekolah yang dipilih pengurus (PRD 4.3) disimpan di tabel `settings`: mode absensi (masuk/pulang, per jam, keduanya), jam masuk/pulang dan batas terlambat, jenis scanner (USB/kamera), hari libur mingguan, notifikasi WA (mati secara bawaan).
+
+### Performa dan offline (Fase 4)
+
+- **Roster lokal** (`GET /api/roster`): kiosk menyimpan kode kartu, nama, dan sesi ruangannya hari itu, lalu menampilkan tanda Hadir/Terlambat/Sudah tercatat langsung dari perangkat tanpa menunggu server. Jawaban server tetap yang menentukan dan mengoreksi layar bila berbeda. Roster diperbarui tiap menit bila versinya berubah.
+- **Antrean offline**: setiap scan masuk antrean IndexedDB dengan `scan_id` unik, bertahan walau halaman ditutup atau tablet mati. Saat tersambung lagi dikirim per 50 lewat `POST /api/scan/batch`. Mengirim ulang batch yang sama tidak membuat catatan ganda. Waktu kehadiran = waktu scan di perangkat (dikoreksi selisih jam perangkat terhadap server), bukan waktu sinkron, diterima sampai 3 hari ke belakang. Scan yang baru tersinkron setelah sesi ditutup menggantikan Alpa otomatis.
+- **Kiosk tetap terbuka saat offline** lewat service worker (`public/kiosk-sw.js`) yang menyimpan halaman, aset, dan foto.
+- **Server**: tanpa sesi PHP untuk request perangkat, kartu + siswa + kelas dalam satu query, sesi aktif per ruangan di-cache per menit (`App\Core\Cache`, memakai APCu bila terpasang), log scan ditulis setelah jawaban dikirim.
+- **Metrik** (`scan_metrics`): kiosk mengukur `t_decode`, `t_feedback`, `t_roundtrip`, `t_total` per scan dan mengirimnya menumpang request berikutnya; `t_server` dari log server.
+- **Dashboard Kecepatan Scan** (`/admin/kecepatan`, Super Admin): p50/p95 per perangkat dan per hari, perangkat lambat, isi antrean offline, selisih jam perangkat.
+- Hasil uji: [docs/laporan-performa-fase-4.md](docs/laporan-performa-fase-4.md). Ringkas: 1.000 scan USB tanda p95 < 1 ms dan tersimpan p95 16 ms; offline 500 scan dengan muat ulang di tengah → 500 tercatat, 0 ganda; 100 scan/detik `t_server` p95 3 ms, 0% error.
 
 ### Scanner kiosk dan inti absensi (Fase 3)
 
@@ -69,6 +79,8 @@ docker compose up -d --build  # lalu buka http://<server>:8090/install
 | --- | --- |
 | `phpunit` | Tes unit (SQLite sementara): matriks akses per peran, validator, impor dengan baris rusak, bentrok jadwal, pengaturan, kartu QR (100.000 kode tanpa tabrakan, ganti kartu, PDF 36 kartu < 5 detik) |
 | `bash tests/smoke.sh` | Instal otomatis dengan data demo (30 kelas, 1.080 siswa, 60 guru), buka semua halaman sebagai Super Admin/TU/Kepsek/Guru, impor CSV lewat form, terbitkan dan cetak kartu QR, pastikan tidak ada 500, halaman lama 404, dan kelas lain ditolak 403 |
+| `bash tests/e2e/run.sh` | Playwright: kiosk 36 siswa lewat ketikan scanner USB |
+| `bash tests/perf/run.sh` | Uji performa Fase 4 (latensi 1.000 scan, jaringan lambat, offline 500 scan, batch 3 kali, beban bertahap); butuh node + Playwright |
 | `node tests/perf/baseline-old-flow.js` | Pengukuran kecepatan alur scan lama (Playwright); hasilnya di [docs/baseline-fase-0.md](docs/baseline-fase-0.md) |
 
 CI (GitHub Actions) menjalankan lint PHP, PHPUnit, smoke test, dan build image Docker pada setiap PR.

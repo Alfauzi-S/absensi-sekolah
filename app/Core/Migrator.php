@@ -59,6 +59,18 @@ final class Migrator
         return $ok ??= self::pending() === [];
     }
 
+    /** Instalasi baru: schema.*.sql sudah memuat semua perubahan, jadi migrasi cukup dicatat tanpa dijalankan. */
+    public static function markAllApplied(): void
+    {
+        self::ensureTable();
+        $applied = self::applied();
+        foreach (array_keys(self::files()) as $name) {
+            if (!in_array($name, $applied, true)) {
+                Database::insert('schema_migrations', ['name' => $name, 'applied_at' => now()]);
+            }
+        }
+    }
+
     /** @return string[] migrasi yang baru dijalankan */
     public static function run(): array
     {

@@ -24,6 +24,7 @@ use App\Controllers\MasterController;
 use App\Controllers\ScheduleController;
 use App\Controllers\SessionController;
 use App\Controllers\SettingsController;
+use App\Controllers\SpeedController;
 use App\Controllers\StudentController;
 use App\Core\Router;
 
@@ -131,6 +132,9 @@ $r->post('/admin/perangkat/{id}/kode', [DeviceController::class, 'pairCode']);
 $r->post('/admin/perangkat/{id}/cabut', [DeviceController::class, 'revoke']);
 $r->post('/admin/perangkat/{id}/hapus', [DeviceController::class, 'destroy']);
 
+// Dashboard kecepatan scan (Super Admin)
+$r->get('/admin/kecepatan', [SpeedController::class, 'index']);
+
 // Sesi absensi (lihat: sesuai cakupan kelas; kelola: Super Admin, TU, guru pengampu, wali kelas)
 $r->get('/admin/sesi', [SessionController::class, 'index']);
 $r->post('/admin/sesi/baru', [SessionController::class, 'store']);
@@ -148,6 +152,8 @@ $r->get('/kiosk/foto/{id}', [KioskController::class, 'photo']);
 // API perangkat: autentikasi header X-Device-Token, tanpa CSRF sesi (lihat Router::post)
 $r->post('/api/device/pair', [ApiController::class, 'pair'], false);
 $r->get('/api/device/me', [ApiController::class, 'me']);
+$r->get('/api/roster', [ApiController::class, 'roster']);
 $r->post('/api/scan', [ApiController::class, 'scan'], false);
+$r->post('/api/scan/batch', [ApiController::class, 'batch'], false);
 
 $r->dispatch($_SERVER['REQUEST_METHOD'] ?? 'GET', Router::currentPath());

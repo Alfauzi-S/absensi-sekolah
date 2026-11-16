@@ -8,7 +8,8 @@ View::script('js/kiosk.js');
 ?>
 <div class="kiosk" id="kiosk"
      data-pair="<?= e(url('api/device/pair')) ?>" data-me="<?= e(url('api/device/me')) ?>" data-scan="<?= e(url('api/scan')) ?>"
-     data-photo="<?= e(url('kiosk/foto')) ?>" data-camera="<?= $camera ? '1' : '0' ?>" data-version="3.0">
+     data-roster="<?= e(url('api/roster')) ?>" data-batch="<?= e(url('api/scan/batch')) ?>"
+     data-photo="<?= e(url('kiosk/foto')) ?>" data-camera="<?= $camera ? '1' : '0' ?>" data-version="4.0" data-sw="<?= e(BASE_PATH . '/kiosk-sw.js') ?>" data-scope="<?= e(BASE_PATH . '/kiosk') ?>">
   <header class="k-top">
     <div class="k-brand"><?= logo_mark(36) ?><div><b><?= e($schoolName) ?></b><span id="k-device"><?= e(t('Scanner belum dipasangkan')) ?></span></div></div>
     <div class="k-clock" id="k-clock" aria-live="off">--:--</div>

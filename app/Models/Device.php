@@ -37,6 +37,7 @@ final class Device
 
     public static function update(int $id, string $name, ?int $roomId): void
     {
+        self::forgetToken($id);
         DB::update('devices', ['name' => $name, 'room_id' => $roomId], 'id = ?', [$id]);
     }
 
@@ -47,6 +48,7 @@ final class Device
             $code = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
         } while (DB::value("SELECT id FROM devices WHERE pair_code = ? AND status = 'pending'", [$code]));
         $expires = date('Y-m-d H:i:s', time() + self::PAIR_TTL);
+        self::forgetToken($id);
         DB::update('devices', [
             'pair_code' => $code, 'pair_expires_at' => $expires, 'status' => 'pending', 'token_hash' => null, 'paired_at' => null, 'revoked_at' => null,
         ], 'id = ?', [$id]);
@@ -79,7 +81,30 @@ final class Device
         if ($token === '' || strlen($token) > 128) {
             return null;
         }
-        return DB::one(self::SELECT . ' WHERE d.token_hash = ?', [self::hash($token)]);
+        $hash = self::hash($token);
+        // Cache 30 detik: jalur scan tidak perlu query perangkat tiap request. Cabut/pasang ulang menghapus cache.
+        return \App\Core\Cache::remember('device:' . $hash, 30, static fn () => DB::one(self::SELECT . ' WHERE d.token_hash = ?', [$hash]));
+    }
+
+    private static function forgetToken(int $id): void
+    {
+        $hash = DB::value('SELECT token_hash FROM devices WHERE id = ?', [$id]);
+        if ($hash) {
+            \App\Core\Cache::forget('device:' . $hash);
+        }
+    }
+
+    /** Catat kondisi kiosk: ukuran antrean offline dan selisih jam perangkat (ms). */
+    public static function report(int $id, string $ip, ?int $queueSize, ?int $clockOffsetMs): void
+    {
+        $data = ['last_seen_at' => now(), 'last_ip' => $ip];
+        if ($queueSize !== null) {
+            $data['queue_size'] = max(0, min(100000, $queueSize));
+        }
+        if ($clockOffsetMs !== null) {
+            $data['clock_offset_ms'] = max(-2000000000, min(2000000000, $clockOffsetMs));
+        }
+        DB::update('devices', $data, 'id = ?', [$id]);
     }
 
     public static function touch(int $id, string $ip): void
@@ -89,11 +114,13 @@ final class Device
 
     public static function revoke(int $id): void
     {
+        self::forgetToken($id);
         DB::update('devices', ['status' => 'revoked', 'token_hash' => null, 'pair_code' => null, 'pair_expires_at' => null, 'revoked_at' => now()], 'id = ?', [$id]);
     }
 
     public static function delete(int $id): void
     {
+        self::forgetToken($id);
         DB::run('DELETE FROM devices WHERE id = ?', [$id]);
     }
 

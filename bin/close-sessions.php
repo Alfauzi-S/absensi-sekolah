@@ -15,5 +15,5 @@ $_SERVER['REQUEST_URI'] = '/bin/close-sessions';
 require dirname(__DIR__) . '/app/bootstrap.php';
 
 $n = \App\Services\SessionCloser::closeExpired();
-$purged = \App\Models\ScanLog::purge(90);
+$purged = \App\Models\ScanLog::purge(90) + \App\Models\ScanMetric::purge(90);
 echo date('Y-m-d H:i:s') . " sesi ditutup: $n, log scan lama dihapus: $purged\n";
