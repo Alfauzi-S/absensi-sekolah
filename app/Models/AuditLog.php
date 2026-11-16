@@ -45,11 +45,22 @@ final class AuditLog
         'schedule.update' => 'Jadwal diubah',
         'schedule.delete' => 'Jadwal dihapus',
         'schedule.import' => 'Impor jadwal',
+        'device.create' => 'Perangkat scanner dibuat',
+        'device.update' => 'Perangkat scanner diubah',
+        'device.pair' => 'Perangkat scanner dipasangkan',
+        'device.repair' => 'Kode pasangan perangkat dibuat ulang',
+        'device.revoke' => 'Perangkat scanner dicabut',
+        'device.delete' => 'Perangkat scanner dihapus',
+        'session.create' => 'Sesi tambahan dibuat',
+        'session.close' => 'Sesi ditutup',
+        'session.cancel' => 'Sesi dibatalkan (jam kosong)',
+        'session.reopen' => 'Sesi dibuka kembali',
+        'attendance.manual' => 'Kehadiran dicatat manual',
         'system.migrate' => 'Migrasi database dijalankan',
     ];
 
     public const GROUPS = ['' => 'Semua', 'access.' => 'Akses ditolak', 'auth.' => 'Login', 'account.' => 'Akun', 'settings.' => 'Pengaturan',
-        'student.' => 'Siswa', 'class.' => 'Kelas', 'schedule.' => 'Jadwal', 'master.' => 'Data master', 'year.' => 'Tahun ajaran', 'card.' => 'Kartu QR'];
+        'student.' => 'Siswa', 'class.' => 'Kelas', 'schedule.' => 'Jadwal', 'master.' => 'Data master', 'year.' => 'Tahun ajaran', 'card.' => 'Kartu QR', 'device.' => 'Perangkat', 'session.' => 'Sesi', 'attendance.' => 'Kehadiran'];
 
     public static function label(string $action): string
     {

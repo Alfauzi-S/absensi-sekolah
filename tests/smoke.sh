@@ -58,12 +58,14 @@ for p in /admin /admin/pengaturan /admin/akun /admin/akun/baru /admin/akun/2 /ad
          /admin/siswa "/admin/siswa?kelas=tanpa&st=all" /admin/siswa/baru "/admin/siswa/$STUDENT_OWN" "/admin/siswa/$STUDENT_OWN/ubah" \
          "/admin/siswa/ekspor?format=csv" /admin/master/ruangan /admin/master/mapel /admin/master/jam /admin/master/libur \
          "/admin/master/ruangan?ubah=1" /admin/jadwal "/admin/jadwal?kelas=$OWN" "/admin/jadwal/baru?kelas=$OWN" /admin/jadwal/1/ubah \
-         /admin/impor "/admin/impor/template/siswa?format=csv" "/admin/impor/template/jadwal?format=csv" /admin/kartu; do check "$p" 200; done
+         /admin/impor "/admin/impor/template/siswa?format=csv" "/admin/impor/template/jadwal?format=csv" /admin/kartu \
+         /admin/perangkat /admin/sesi "/admin/sesi?tanggal=2026-11-16" /kiosk; do check "$p" 200; done
 
 echo "Kartu QR: terbitkan satu kelas lewat form, lalu PDF:"
 tok=$(curl -s -b "$CJ" "$BASE/admin/kartu" | grep -o 'name="_csrf" value="[^"]*"' | head -1 | cut -d'"' -f4)
 got=$(curl -s -o /dev/null -w '%{http_code}' -b "$CJ" -c "$CJ" -X POST "$BASE/admin/kartu/terbitkan" --data-urlencode "_csrf=$tok" --data-urlencode "class_id=$OWN")
 [[ "$got" =~ ^30[123]$ ]] && printf '  ok   %-40s %s\n' "POST /admin/kartu/terbitkan" "$got" || { printf '  FAIL POST /admin/kartu/terbitkan %s\n' "$got"; fail=1; }
+curl -s -o /dev/null -b "$CJ" -c "$CJ" -X POST "$BASE/admin/kartu/terbitkan" --data-urlencode "_csrf=$tok" --data-urlencode "class_id=$OTHER"
 t0=$(date +%s%N)
 ctype=$(curl -s -o "$TMP/kartu.pdf" -w '%{content_type}' -b "$CJ" "$BASE/admin/kartu/cetak?kelas=$OWN")
 ms=$(( ($(date +%s%N) - t0) / 1000000 ))
@@ -75,6 +77,40 @@ check / 30[123]
 check /install 404
 check /admin/master/lainnya 404
 check /admin/kelas/999999 404
+
+echo "Scanner (Fase 3): perangkat, pairing, API scan, 50 scan ganda bersamaan:"
+tok=$(curl -s -b "$CJ" "$BASE/admin/perangkat" | grep -o 'name="_csrf" value="[^"]*"' | head -1 | cut -d'"' -f4)
+got=$(curl -s -o /dev/null -w '%{http_code}' -b "$CJ" -c "$CJ" -X POST "$BASE/admin/perangkat/baru" --data-urlencode "_csrf=$tok" --data-urlencode "name=Tablet Smoke" --data-urlencode "room_id=1")
+[[ "$got" =~ ^30[123]$ ]] && printf '  ok   %-40s %s\n' "POST /admin/perangkat/baru" "$got" || { printf '  FAIL POST /admin/perangkat/baru %s\n' "$got"; fail=1; }
+tok=$(curl -s -b "$CJ" "$BASE/admin/sesi" | grep -o 'name="_csrf" value="[^"]*"' | head -1 | cut -d'"' -f4)
+got=$(curl -s -o /dev/null -w '%{http_code}' -b "$CJ" -c "$CJ" -X POST "$BASE/admin/sesi/baru" --data-urlencode "_csrf=$tok" --data-urlencode "class_id=$OWN" --data-urlencode "room_id=1" \
+  --data-urlencode "date=$(php -r 'date_default_timezone_set("Asia/Makassar"); echo date("Y-m-d");')" --data-urlencode "start=$(php -r 'date_default_timezone_set("Asia/Makassar"); echo date("H:i", time() - 1200);')" --data-urlencode "end=$(php -r 'date_default_timezone_set("Asia/Makassar"); echo date("H:i", min(time() + 5400, strtotime("23:59")));')" --data-urlencode "note=Smoke")
+[[ "$got" =~ ^30[123]$ ]] && printf '  ok   %-40s %s\n' "POST /admin/sesi/baru (sesi tambahan)" "$got" || { printf '  FAIL POST /admin/sesi/baru %s\n' "$got"; fail=1; }
+read -r PAIR CARD SESS < <(php -r '
+$pdo = new PDO("sqlite:" . $argv[1]);
+echo $pdo->query("SELECT pair_code FROM devices ORDER BY id DESC LIMIT 1")->fetchColumn(), " ",
+  $pdo->query("SELECT code FROM cards WHERE student_id = " . (int) $argv[2] . " AND status = \"active\"")->fetchColumn(), " ",
+  $pdo->query("SELECT id FROM sessions ORDER BY id DESC LIMIT 1")->fetchColumn(), "\n";' "$TMP/smoke.sqlite" "$STUDENT_OWN")
+api() { curl -s -o "$TMP/api.json" -w '%{http_code}' -X POST "$BASE$1" -H "Content-Type: application/json" ${2:+-H "X-Device-Token: $2"} -d "$3"; }
+got=$(api /api/device/pair "" '{"code":"000000"}'); [ "$got" = 400 ] && echo "  ok   pairing kode salah → 400" || { echo "  FAIL pairing kode salah: $got"; fail=1; }
+got=$(api /api/device/pair "" "{\"code\":\"$PAIR\"}"); DTOK=$(php -r 'echo json_decode(file_get_contents($argv[1]), true)["token"] ?? "";' "$TMP/api.json")
+[ "$got" = 200 ] && [ -n "$DTOK" ] && echo "  ok   pairing kode benar → token" || { echo "  FAIL pairing: $got $(cat "$TMP/api.json")"; fail=1; }
+got=$(api /api/device/pair "" "{\"code\":\"$PAIR\"}"); [ "$got" = 400 ] && echo "  ok   kode pasangan sekali pakai" || { echo "  FAIL kode dipakai dua kali: $got"; fail=1; }
+got=$(api /api/scan "" '{"code":"X"}'); [ "$got" = 401 ] && echo "  ok   scan tanpa token → 401" || { echo "  FAIL scan tanpa token: $got"; fail=1; }
+got=$(api /api/scan "salah" '{"code":"X"}'); [ "$got" = 401 ] && echo "  ok   scan token salah → 401" || { echo "  FAIL scan token salah: $got"; fail=1; }
+got=$(curl -s -o "$TMP/me.json" -w '%{http_code}' "$BASE/api/device/me" -H "X-Device-Token: $DTOK"); grep -q '"Smoke' "$TMP/me.json" && [ "$got" = 200 ] && echo "  ok   /api/device/me memuat sesi tambahan" || { echo "  FAIL /api/device/me: $got $(cat "$TMP/me.json")"; fail=1; }
+# 50 scan siswa yang sama secara paralel: tepat 1 tersimpan, 49 duplikat
+seq 1 50 | xargs -P 25 -I{} curl -s -o "$TMP/scan-{}.json" -X POST "$BASE/api/scan" -H "Content-Type: application/json" -H "X-Device-Token: $DTOK" -d "{\"scan_id\":\"smoke-{}-00000000\",\"code\":\"$CARD\"}"
+n_ok=$(cat "$TMP"/scan-*.json | grep -o '"state":"\(ok\|late\)"' | wc -l || true); n_dup=$(cat "$TMP"/scan-*.json | grep -o '"state":"dup"' | wc -l || true)
+rows=$(php -r '$p = new PDO("sqlite:" . $argv[1]); echo $p->query("SELECT COUNT(*) FROM attendances WHERE student_id = " . (int) $argv[2])->fetchColumn();' "$TMP/smoke.sqlite" "$STUDENT_OWN")
+[ "$n_ok" = 1 ] && [ "$n_dup" = 49 ] && [ "$rows" = 1 ] && echo "  ok   50 scan bersamaan: 1 tersimpan, 49 duplikat, 1 baris" || { echo "  FAIL 50 scan bersamaan: ok=$n_ok dup=$n_dup baris=$rows"; fail=1; }
+got=$(api /api/scan "$DTOK" "{\"code\":\"$(php -r '$p = new PDO("sqlite:" . $argv[1]); echo $p->query("SELECT code FROM cards WHERE student_id = " . (int) $argv[2])->fetchColumn();' "$TMP/smoke.sqlite" "$STUDENT_OTHER")\"}")
+grep -q '"state":"wrongclass"' "$TMP/api.json" && echo "  ok   siswa kelas lain → salah kelas" || { echo "  FAIL salah kelas: $(cat "$TMP/api.json")"; fail=1; }
+check "/admin/sesi/$SESS" 200
+check "/admin/sesi/$SESS/live" 200
+tok=$(curl -s -b "$CJ" "$BASE/admin/perangkat" | grep -o 'name="_csrf" value="[^"]*"' | head -1 | cut -d'"' -f4)
+curl -s -o /dev/null -b "$CJ" -c "$CJ" -X POST "$BASE/admin/perangkat/1/cabut" --data-urlencode "_csrf=$tok"
+got=$(api /api/scan "$DTOK" '{"code":"X"}'); [ "$got" = 401 ] && echo "  ok   perangkat dicabut → token ditolak" || { echo "  FAIL token dicabut masih diterima: $got"; fail=1; }
 
 echo "Halaman lama harus 404:"
 for p in /petugas /petugas/scan /admin/event /admin/peserta /admin/laporan /admin/riwayat /e/demo /sertifikat; do check "$p" 404; done
@@ -90,25 +126,27 @@ grep -q 'Tanpa NIS\|Baris' "$TMP/impor.html" && echo "  ok   baris gagal dilapor
 
 echo "TU / Staff:"
 login tu.sekolah tu12345678
-for p in /admin /admin/siswa /admin/siswa/baru /admin/kelas "/admin/kelas/$OTHER" /admin/jadwal /admin/impor /admin/tahun-ajaran /admin/master/jam /admin/pengaturan; do check "$p" 200; done
-for p in /admin/akun /admin/audit; do check "$p" 403; done
+for p in /admin /admin/siswa /admin/siswa/baru /admin/kelas "/admin/kelas/$OTHER" /admin/jadwal /admin/impor /admin/tahun-ajaran /admin/master/jam /admin/pengaturan /admin/sesi "/admin/sesi/$SESS"; do check "$p" 200; done
+for p in /admin/akun /admin/audit /admin/perangkat; do check "$p" 403; done
 
 echo "Kepala Sekolah (hanya lihat):"
 login kepsek kepsek12345
-for p in /admin /admin/siswa /admin/kelas "/admin/kelas/$OTHER" /admin/jadwal "/admin/siswa/ekspor?format=csv"; do check "$p" 200; done
-for p in /admin/siswa/baru /admin/kelas/baru /admin/impor /admin/akun /admin/audit /admin/master/ruangan /admin/tahun-ajaran /admin/kartu "/admin/kartu/cetak?kelas=$OWN"; do check "$p" 403; done
+for p in /admin /admin/siswa /admin/kelas "/admin/kelas/$OTHER" /admin/jadwal "/admin/siswa/ekspor?format=csv" /admin/sesi "/admin/sesi/$SESS"; do check "$p" 200; done
+for p in /admin/siswa/baru /admin/kelas/baru /admin/impor /admin/akun /admin/audit /admin/master/ruangan /admin/tahun-ajaran /admin/kartu "/admin/kartu/cetak?kelas=$OWN" /admin/perangkat; do check "$p" 403; done
 
 echo "Guru (wali kelas X-1):"
 login guru01 guru12345
-for p in /admin /admin/kelas "/admin/kelas/$OWN" "/admin/siswa?kelas=$OWN" "/admin/siswa/$STUDENT_OWN" "/admin/jadwal?kelas=$OWN" /admin/pengaturan; do check "$p" 200; done
+for p in /admin /admin/kelas "/admin/kelas/$OWN" "/admin/siswa?kelas=$OWN" "/admin/siswa/$STUDENT_OWN" "/admin/jadwal?kelas=$OWN" /admin/pengaturan /admin/sesi "/admin/sesi/$SESS" "/admin/sesi/$SESS/live"; do check "$p" 200; done
 for p in "/admin/kelas/$OTHER" "/admin/siswa?kelas=$OTHER" "/admin/siswa/$STUDENT_OTHER" "/admin/jadwal?kelas=$OTHER" \
-         /admin/siswa/baru "/admin/kelas/$OWN/ubah" /admin/impor /admin/akun /admin/audit /admin/master/jam /admin/tahun-ajaran /admin/kartu "/admin/kartu/cetak?kelas=$OWN" "/admin/siswa/$STUDENT_OTHER/foto"; do check "$p" 403; done
+         /admin/siswa/baru "/admin/kelas/$OWN/ubah" /admin/impor /admin/akun /admin/audit /admin/master/jam /admin/tahun-ajaran /admin/kartu "/admin/kartu/cetak?kelas=$OWN" "/admin/siswa/$STUDENT_OTHER/foto" /admin/perangkat; do check "$p" 403; done
 
 echo "Tanpa login:"
 rm -f "$CJ"
 check /admin 30[123]
 check /admin/siswa 30[123]
 check /masuk 200
+check /kiosk 200
+check /api/device/me 401
 
 # Hanya error dari kode aplikasi (menyebut file di repo). Peringatan startup PHP seperti
 # "JIT is incompatible ... in Unknown on line 0" berasal dari ekstensi runner, bukan dari aplikasi.

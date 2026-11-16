@@ -10,8 +10,8 @@ Dokumen acuan: **PRD Absensi QR Siswa** (dokumen proyek) berisi peran, alur scan
 | --- | --- | --- |
 | 0 | Salin kode asal, buang modul event/sertifikat yang tidak dipakai, CI, baseline kecepatan | Selesai |
 | 1 | Data master sekolah (tahun ajaran, kelas, siswa, guru, jadwal), 4 peran + wali kelas, impor Excel/CSV | Selesai |
-| 2 | Kartu QR siswa (kode acak 12 karakter berversi), foto siswa, cetak PDF CR80 massal | Selesai (PR ini) |
-| 3 | Scanner kiosk dan inti absensi (`POST /api/scan`) | Belum |
+| 2 | Kartu QR siswa (kode acak 12 karakter berversi), foto siswa, cetak PDF CR80 massal | Selesai |
+| 3 | Scanner kiosk dan inti absensi (`POST /api/scan`) | Selesai (PR ini) |
 | 4 | Performa, roster lokal, antrean offline, metrik kecepatan scan | Belum |
 | 5 | Izin/sakit, koreksi, rekap, dashboard | Belum |
 | 6 | Notifikasi WhatsApp dan portal orang tua (opsional, diatur pengurus) | Belum |
@@ -30,6 +30,16 @@ Catatan Fase 1: seluruh modul event/peserta dari kode asal sudah diganti dengan 
 | Wali kelas | Guru yang tercatat di `classes.homeroom_teacher_id`; mendapat izin `class:manage` di kelas itu (dipakai Fase 5 untuk izin/koreksi) |
 
 Pengaturan sekolah yang dipilih pengurus (PRD 4.3) disimpan di tabel `settings`: mode absensi (masuk/pulang, per jam, keduanya), jam masuk/pulang dan batas terlambat, jenis scanner (USB/kamera), hari libur mingguan, notifikasi WA (mati secara bawaan).
+
+### Scanner kiosk dan inti absensi (Fase 3)
+
+- **Perangkat scanner** (`/admin/perangkat`, Super Admin): satu perangkat per ruangan. Super Admin membuat perangkat → kode pasangan 6 digit (15 menit) → di kiosk (`/kiosk`) kode dimasukkan sekali → kiosk menyimpan token (server hanya menyimpan hash). Perangkat bisa dipasang ulang atau dicabut; token dicabut langsung ditolak (401).
+- **Sesi absensi** dibuat otomatis saat scanner butuh: mode *per jam* mengikuti jadwal ruangan (ruangan jadwal, atau ruang kelas bila jadwal tidak menyebut ruangan), scan diterima 10 menit sebelum jam mulai sampai akhir jam; mode *masuk/pulang* mengikuti jendela jam di pengaturan untuk kelas yang menempati ruangan; mode *keduanya* mencatat ke keduanya. Hari libur/akhir pekan: tidak ada sesi. Slot unik (`sessions.slot_key`) menjamin dua scanner tidak membuat sesi ganda.
+- **`POST /api/scan`** (header `X-Device-Token`, body `{scan_id, code, scanned_at, metrics}`): satu request, satu `INSERT` atomik dengan `UNIQUE (session_id, student_id)`. Hasil: `ok`, `late` (Terlambat N menit, dihitung per menit sejak jam mulai; toleransi dari pengaturan, bawaan 10), `dup` (Sudah tercatat HH:MM), `wrongclass` (Bukan kelas X), `invalid` (kartu tidak ada/dicabut/siswa nonaktif), `nosession`. `scan_id` yang sama dijawab sama tanpa mencatat ulang (idempoten). Semua scan, termasuk yang ditolak, masuk `scan_logs` beserta `t_server_ms`.
+- **Kiosk** (`/kiosk`, tanpa login): scanner USB/Bluetooth (keyboard wedge: ketikan cepat + Enter, fokus di mana pun), kamera (html5-qrcode, bila pengaturan mengizinkan), bunyi berbeda per hasil (WebAudio, tanpa file), warna layar, foto/inisial siswa, kembali siap scan otomatis (2–4 detik), penghitung `t_total` (ketik → tampil) rata-rata/p95 di kaki halaman. Perangkat yang dicabut/401 otomatis kembali ke layar pairing.
+- **Sesi** (`/admin/sesi`): daftar per tanggal (guru hanya kelasnya), halaman live per sesi (polling 5 detik), **tutup sesi → siswa belum scan = Alpa**, **jam kosong** (dibatalkan, tidak ada Alpa), buka kembali, tandai hadir manual, **sesi tambahan** di luar jadwal (ekstrakurikuler, guru pengganti). Penutupan otomatis 5 menit setelah jam berakhir lewat `bin/close-sessions.php` (cron tiap 5 menit) atau, sebagai cadangan, saat kiosk memanggil `/api/device/me`.
+- Hasil ukur lokal (SQLite, server bawaan PHP): server 1–3 ms per scan; E2E Playwright 36 siswa lewat ketikan USB: `t_total` rata-rata 13 ms, p95 21 ms (target PRD ≤ 300 ms); 50 scan siswa yang sama secara paralel → tepat 1 baris, 49 `dup`.
+- Tes: `tests/Unit/SessionResolverTest.php` (batas menit, pergantian jam, libur/akhir pekan, ruangan jadwal vs ruang kelas, mode masuk/pulang/keduanya, jam kosong, sesi tambahan), `tests/Unit/ScanServiceTest.php` (menit ke-0/10/11, ok/dup/late/wrongclass/invalid/nosession, idempoten, 50 scan ganda, tutup sesi → Alpa, siklus token perangkat), `tests/smoke.sh` (pairing, 401/403, 50 scan paralel lewat HTTP, akses per peran), `tests/e2e/run.sh` (Playwright kiosk 36 siswa).
 
 ### Kartu QR (Fase 2)
 

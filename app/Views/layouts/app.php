@@ -12,6 +12,7 @@ $nav = array_values(array_filter([
     ['classes', 'admin/kelas', 'building', 'Kelas'],
     ['students', 'admin/siswa', 'users', 'Siswa'],
     ['schedules', 'admin/jadwal', 'calendar', 'Jadwal'],
+    ['sessions', 'admin/sesi', 'scan', 'Sesi Absensi'],
     can('master') ? ['cards', 'admin/kartu', 'qr', 'Kartu QR'] : null,
     can('master') ? ['years', 'admin/tahun-ajaran', 'history', 'Tahun Ajaran'] : null,
     can('master') ? ['master-ruangan', 'admin/master/ruangan', 'pin', 'Ruangan'] : null,
@@ -20,10 +21,11 @@ $nav = array_values(array_filter([
     can('master') ? ['master-libur', 'admin/master/libur', 'sun', 'Hari Libur'] : null,
     can('master') ? ['import', 'admin/impor', 'upload', 'Impor Data'] : null,
     can('accounts') ? ['accounts', 'admin/akun', 'shield', 'Akun Pengguna'] : null,
+    can('accounts') ? ['devices', 'admin/perangkat', 'scan', 'Perangkat Scanner'] : null,
     can('audit') ? ['audit', 'admin/audit', 'eye', 'Audit Log'] : null,
     ['settings', 'admin/pengaturan', 'sliders', 'Pengaturan'],
 ]));
-$bottomKeys = ['dashboard', 'classes', 'students', 'schedules'];
+$bottomKeys = ['dashboard', 'sessions', 'classes', 'students'];
 $bottom = array_values(array_filter($nav, static fn ($n) => in_array($n[0], $bottomKeys, true)));
 $bottom = array_map(static fn ($n) => $n[0] === 'dashboard' ? ['dashboard', 'admin', 'grid', 'Beranda'] : $n, $bottom);
 $more = array_values(array_filter($nav, static fn ($n) => !in_array($n[0], $bottomKeys, true)));
