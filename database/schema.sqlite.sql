@@ -1,4 +1,4 @@
--- Absensi Sekolah: skema SQLite (pengujian / instalasi kecil). Versi 5 (Fase 1 data master, Fase 2 kartu, Fase 3 absensi, Fase 4 metrik, Fase 5 izin dan riwayat).
+-- Absensi Sekolah: skema SQLite (pengujian / instalasi kecil). Versi 6 (Fase 1 data master, Fase 2 kartu, Fase 3 absensi, Fase 4 metrik, Fase 5 izin dan riwayat, Fase 6 notifikasi dan portal).
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS settings (
@@ -68,6 +68,8 @@ CREATE TABLE IF NOT EXISTS students (
   photo_path TEXT NULL,
   parent_name TEXT NULL,
   parent_phone TEXT NULL,
+  portal_code_hash TEXT NULL,
+  portal_code_at TEXT NULL,
   status TEXT NOT NULL DEFAULT 'Aktif' CHECK (status IN ('Aktif', 'Lulus', 'Pindah', 'Keluar')),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -314,3 +316,24 @@ CREATE TABLE IF NOT EXISTS status_history (
 );
 CREATE INDEX IF NOT EXISTS idx_history_session ON status_history (session_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_history_student ON status_history (student_id, created_at);
+
+-- Antrean notifikasi WhatsApp ke orang tua (Fase 6): satu pesan per siswa per hari
+CREATE TABLE IF NOT EXISTS notifications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  notify_date TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('A','T')),
+  phone TEXT NULL,
+  message TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','sending','sent','failed','skipped')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at TEXT NULL,
+  last_error TEXT NULL,
+  provider_ref TEXT NULL,
+  claimed_at TEXT NULL,
+  created_at TEXT NOT NULL,
+  sent_at TEXT NULL,
+  UNIQUE (student_id, notify_date)
+);
+CREATE INDEX IF NOT EXISTS idx_notif_queue ON notifications (status, next_attempt_at);
+CREATE INDEX IF NOT EXISTS idx_notif_date ON notifications (notify_date, status);

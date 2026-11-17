@@ -25,6 +25,7 @@ $nav = array_values(array_filter([
     can('accounts') ? ['accounts', 'admin/akun', 'shield', 'Akun Pengguna'] : null,
     can('accounts') ? ['devices', 'admin/perangkat', 'scan', 'Perangkat Scanner'] : null,
     can('accounts') ? ['speed', 'admin/kecepatan', 'chart', 'Kecepatan Scan'] : null,
+    can('settings') ? ['notifications', 'admin/notifikasi', 'bell', 'Notifikasi WA'] : null,
     can('audit') ? ['audit', 'admin/audit', 'eye', 'Audit Log'] : null,
     ['settings', 'admin/pengaturan', 'sliders', 'Pengaturan'],
 ]));

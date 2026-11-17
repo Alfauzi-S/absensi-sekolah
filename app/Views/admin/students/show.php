@@ -41,6 +41,18 @@
   </tbody></table></div>
   <?php endif; ?>
 </div>
+<?php if ($canManage || $portalCode): ?>
+<div class="card">
+  <div class="card-h"><h3><?= e(t('Portal orang tua')) ?></h3><?php if ($s['portal_code_hash']): ?><span class="bdg bdg-ok"><i></i><?= e(t('Kode dibuat :d', ['d' => datetime_id($s['portal_code_at'])])) ?></span><?php else: ?><span class="bdg bdg-mute"><?= e(t('Belum ada kode')) ?></span><?php endif; ?></div>
+  <?php if ($portalCode): ?>
+    <div class="banner ok" role="status"><?= icon('key') ?><div class="grow"><?= e(t('Kode akses baru')) ?> <b class="mono" style="font-size:20px;letter-spacing:.06em" data-portal-code><?= e($portalCode) ?></b>
+      <div class="small"><?= e(t('Berikan ke orang tua bersama NIS :nis. Masuk di :u. Kode ini hanya ditampilkan sekali; kode lama tidak berlaku lagi.', ['nis' => $s['nis'], 'u' => full_url('portal')])) ?></div></div></div>
+  <?php else: ?>
+    <p class="small muted"><?= e(t('Orang tua melihat riwayat kehadiran anak di :u dengan NIS dan kode akses. Kode hanya ditampilkan sekali saat dibuat; bila hilang, buat kode baru.', ['u' => full_url('portal')])) ?><?= \App\Models\Setting::get('portal_enabled') !== '1' ? ' ' . e(t('Portal sedang mati (Pengaturan).')) : '' ?></p>
+  <?php endif; ?>
+  <?php if ($canManage): ?><div class="acts"><?= post_button('admin/siswa/' . $s['id'] . '/kode-portal', $s['portal_code_hash'] ? 'Buat kode baru' : 'Buat kode akses', [], 'btn btn-outline', $s['portal_code_hash'] ? 'Buat kode baru? Kode lama langsung tidak berlaku.' : '', 'key') ?></div><?php endif; ?>
+</div>
+<?php endif; ?>
 <div class="card">
   <div class="card-h"><h3><?= e(t('Riwayat kelas')) ?></h3></div>
   <?php if (!$history): ?><p class="muted small"><?= e(t('Belum pernah ditempatkan di kelas.')) ?></p>

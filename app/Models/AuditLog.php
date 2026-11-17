@@ -57,10 +57,18 @@ final class AuditLog
         'session.reopen' => 'Sesi dibuka kembali',
         'attendance.manual' => 'Kehadiran dicatat manual',
         'system.migrate' => 'Migrasi database dijalankan',
+        'notification.send' => 'Antrean WhatsApp diproses manual',
+        'notification.retry' => 'Notifikasi gagal dikirim ulang',
+        'notification.test' => 'Pesan uji WhatsApp',
+        'portal.code' => 'Kode portal orang tua dibuat',
+        'portal.code_bulk' => 'Kode portal orang tua dibuat massal',
+        'portal.login' => 'Orang tua masuk portal',
+        'portal.login_failed' => 'Orang tua gagal masuk portal',
+        'portal.denied' => 'Portal: akses data anak lain ditolak',
     ];
 
     public const GROUPS = ['' => 'Semua', 'access.' => 'Akses ditolak', 'auth.' => 'Login', 'account.' => 'Akun', 'settings.' => 'Pengaturan',
-        'student.' => 'Siswa', 'class.' => 'Kelas', 'schedule.' => 'Jadwal', 'master.' => 'Data master', 'year.' => 'Tahun ajaran', 'card.' => 'Kartu QR', 'device.' => 'Perangkat', 'session.' => 'Sesi', 'attendance.' => 'Kehadiran'];
+        'student.' => 'Siswa', 'class.' => 'Kelas', 'schedule.' => 'Jadwal', 'master.' => 'Data master', 'year.' => 'Tahun ajaran', 'card.' => 'Kartu QR', 'device.' => 'Perangkat', 'session.' => 'Sesi', 'attendance.' => 'Kehadiran', 'notification.' => 'Notifikasi', 'portal.' => 'Portal orang tua'];
 
     public static function label(string $action): string
     {

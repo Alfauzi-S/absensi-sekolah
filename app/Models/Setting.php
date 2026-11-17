@@ -23,6 +23,9 @@ final class Setting
 
     public const SCANNER_MODES = ['usb' => 'Scanner USB/Bluetooth', 'camera' => 'Kamera', 'both' => 'Keduanya'];
     public const WA_MODES = ['off' => 'Mati', 'alpa' => 'Hanya Alpa', 'terlambat' => 'Hanya Terlambat', 'both' => 'Alpa dan Terlambat'];
+    public const WA_PROVIDERS = ['sandbox' => 'Sandbox (uji, tidak benar-benar mengirim)', 'fonnte' => 'Fonnte', 'webhook' => 'Webhook JSON (gateway lain)'];
+    public const WA_TEMPLATE_ALPA = 'Assalamualaikum Bapak/Ibu, kami informasikan {nama} ({kelas}) tidak hadir tanpa keterangan (Alpa) pada {tanggal}. Mohon konfirmasi ke wali kelas. — {sekolah}';
+    public const WA_TEMPLATE_LATE = 'Assalamualaikum Bapak/Ibu, kami informasikan {nama} ({kelas}) terlambat {menit} menit pada {tanggal} (scan pukul {jam}). — {sekolah}';
 
     /** Nilai bawaan; kunci yang tidak ada di sini tidak bisa disimpan. */
     public const DEFAULTS = [
@@ -41,6 +44,10 @@ final class Setting
         'wa_notify' => 'off',
         'wa_gateway_url' => '',
         'wa_gateway_token' => '',
+        'wa_provider' => 'sandbox',
+        'wa_template_alpa' => self::WA_TEMPLATE_ALPA,
+        'wa_template_late' => self::WA_TEMPLATE_LATE,
+        'portal_enabled' => '0',
         'weekend_days' => '6,7',
     ];
 

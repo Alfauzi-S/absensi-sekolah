@@ -21,6 +21,8 @@ use App\Controllers\ImportController;
 use App\Controllers\InstallController;
 use App\Controllers\KioskController;
 use App\Controllers\MasterController;
+use App\Controllers\NotificationController;
+use App\Controllers\PortalController;
 use App\Controllers\ScheduleController;
 use App\Controllers\SessionController;
 use App\Controllers\LeaveController;
@@ -160,6 +162,22 @@ $r->get('/admin/rekap/kelas/{id}', [RecapController::class, 'classRecap']);
 $r->get('/admin/rekap/siswa/{id}', [RecapController::class, 'student']);
 $r->get('/admin/rekap/sekolah', [RecapController::class, 'school']);
 $r->get('/admin/rekap/sekolah/semester', [RecapController::class, 'schoolSemester']);
+
+// Notifikasi WhatsApp (Super Admin)
+$r->get('/admin/notifikasi', [NotificationController::class, 'index']);
+$r->post('/admin/notifikasi/kirim', [NotificationController::class, 'send']);
+$r->post('/admin/notifikasi/coba-ulang', [NotificationController::class, 'retry']);
+$r->post('/admin/notifikasi/uji', [NotificationController::class, 'test']);
+
+// Kode akses portal orang tua (Super Admin, TU)
+$r->post('/admin/siswa/{id}/kode-portal', [PortalController::class, 'issue']);
+$r->post('/admin/kelas/{id}/kode-portal', [PortalController::class, 'issueClass']);
+
+// Portal orang tua/siswa: riwayat kehadiran anak sendiri (masuk dengan NIS + kode akses)
+$r->get('/portal', [PortalController::class, 'home']);
+$r->post('/portal/masuk', [PortalController::class, 'login']);
+$r->post('/portal/keluar', [PortalController::class, 'logout']);
+$r->get('/portal/siswa/{id}', [PortalController::class, 'student']);
 
 // Kiosk scanner (tanpa login; token perangkat tersimpan di browser kiosk)
 $r->get('/kiosk', [KioskController::class, 'index']);

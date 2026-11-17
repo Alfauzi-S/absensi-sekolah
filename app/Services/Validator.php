@@ -233,8 +233,21 @@ final class Validator
         if (!ctype_digit((string) $d['late_tolerance_minutes']) || (int) $d['late_tolerance_minutes'] > 120) {
             $e['late_tolerance_minutes'] = t('Toleransi 0–120 menit.');
         }
-        if ($d['wa_notify'] !== 'off' && !filter_var($d['wa_gateway_url'], FILTER_VALIDATE_URL)) {
+        if (!isset(\App\Models\Setting::WA_PROVIDERS[$d['wa_provider']])) {
+            $e['wa_provider'] = t('Pilih penyedia gateway.');
+        } elseif ($d['wa_notify'] !== 'off' && $d['wa_provider'] === 'webhook' && !filter_var($d['wa_gateway_url'], FILTER_VALIDATE_URL)) {
             $e['wa_gateway_url'] = t('Isi URL gateway WhatsApp bila notifikasi dinyalakan.');
+        }
+        if ($d['wa_gateway_url'] !== '' && !preg_match('#^https://#i', $d['wa_gateway_url'])) {
+            $e['wa_gateway_url'] = t('URL gateway harus https://');
+        }
+        foreach (['wa_template_alpa', 'wa_template_late'] as $k) {
+            if (mb_strlen($d[$k]) < 10 || mb_strlen($d[$k]) > 600) {
+                $e[$k] = t('Isi template pesan 10–600 karakter.');
+            }
+        }
+        if (!in_array($d['portal_enabled'], ['0', '1'], true)) {
+            $e['portal_enabled'] = t('Pilih nyala atau mati.');
         }
         if (mb_strlen($d['school_name']) > 120) {
             $e['school_name'] = t('Maksimal 120 karakter.');

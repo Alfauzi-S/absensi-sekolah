@@ -52,6 +52,8 @@ final class View
         'upload' => 'M12 20V9M7 14l5-5 5 5M5 4h14',
         'zip' => 'M6 3h8l4 4v14H6zM11 7h2M11 10h2M11 13h2M11 16h2v2h-2z',
         'globe' => 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18',
+        'send' => 'M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z',
+        'bell' => 'M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0',
     ];
 
     /** @var string[] Skrip tambahan yang diminta template (dimuat di layout). */
