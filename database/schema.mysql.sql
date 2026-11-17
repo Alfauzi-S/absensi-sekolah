@@ -1,4 +1,4 @@
--- Absensi Sekolah: skema MySQL/MariaDB. Versi 5 (Fase 1 data master, Fase 2 kartu, Fase 3 absensi, Fase 4 metrik, Fase 5 izin dan riwayat).
+-- Absensi Sekolah: skema MySQL/MariaDB. Versi 6 (Fase 1 data master, Fase 2 kartu, Fase 3 absensi, Fase 4 metrik, Fase 5 izin dan riwayat, Fase 6 notifikasi dan portal).
 SET NAMES utf8mb4;
 
 CREATE TABLE IF NOT EXISTS settings (
@@ -75,6 +75,8 @@ CREATE TABLE IF NOT EXISTS students (
   photo_path VARCHAR(255) NULL,
   parent_name VARCHAR(120) NULL,
   parent_phone VARCHAR(20) NULL,
+  portal_code_hash VARCHAR(255) NULL,
+  portal_code_at DATETIME NULL,
   status ENUM('Aktif', 'Lulus', 'Pindah', 'Keluar') NOT NULL DEFAULT 'Aktif',
   created_at DATETIME NOT NULL,
   updated_at DATETIME NOT NULL,
@@ -342,4 +344,26 @@ CREATE TABLE IF NOT EXISTS status_history (
   created_at DATETIME NOT NULL,
   KEY idx_history_session (session_id, created_at),
   KEY idx_history_student (student_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Antrean notifikasi WhatsApp ke orang tua (Fase 6): satu pesan per siswa per hari
+CREATE TABLE IF NOT EXISTS notifications (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  student_id INT UNSIGNED NOT NULL,
+  notify_date DATE NOT NULL,
+  kind ENUM('A','T') NOT NULL,
+  phone VARCHAR(20) NULL,
+  message TEXT NOT NULL,
+  status ENUM('pending','sending','sent','failed','skipped') NOT NULL DEFAULT 'pending',
+  attempts TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  next_attempt_at DATETIME NULL,
+  last_error VARCHAR(255) NULL,
+  provider_ref VARCHAR(100) NULL,
+  claimed_at DATETIME NULL,
+  created_at DATETIME NOT NULL,
+  sent_at DATETIME NULL,
+  UNIQUE KEY uq_notif_student_day (student_id, notify_date),
+  KEY idx_notif_queue (status, next_attempt_at),
+  KEY idx_notif_date (notify_date, status),
+  CONSTRAINT fk_notif_student FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -135,7 +135,16 @@ final class StudentController extends Controller
             'canManage' => Access::can($user, 'master'),
             'card' => Card::activeFor((int) $s['id']), 'cards' => Card::history((int) $s['id']),
             'hasPhoto' => Photo::exists((int) $s['id']),
+            'portalCode' => $this->takePortalCode((int) $s['id']),
         ]);
+    }
+
+    /** Kode portal yang baru dibuat (ditampilkan sekali, lalu dibuang dari sesi). */
+    private function takePortalCode(int $studentId): ?string
+    {
+        $once = $_SESSION['portal_code_once'] ?? null;
+        unset($_SESSION['portal_code_once']);
+        return is_array($once) && (int) ($once['id'] ?? 0) === $studentId ? (string) $once['code'] : null;
     }
 
     public function edit(string $id): void

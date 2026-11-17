@@ -81,5 +81,17 @@ final class SessionCloser
         } catch (\Throwable $e) {
             error_log('close-sessions gagal: ' . $e->getMessage());
         }
+        // Antrean WhatsApp dikirim setelah jawaban ke kiosk selesai, supaya kiosk tidak ikut menunggu gateway.
+        register_shutdown_function(static function (): void {
+            if (function_exists('fastcgi_finish_request')) {
+                @session_write_close();
+                fastcgi_finish_request();
+            }
+            try {
+                Notifier::run(null, 20);
+            } catch (\Throwable $e) {
+                error_log('notifikasi gagal: ' . $e->getMessage());
+            }
+        });
     }
 }

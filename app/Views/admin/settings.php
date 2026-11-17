@@ -44,13 +44,25 @@
   </div>
   <div class="fld"><label><?= e(t('Hari libur mingguan')) ?></label>
     <div class="chips"><?php for ($d = 1; $d <= 7; $d++): ?><label class="chip<?= in_array($d, $weekend, true) ? ' on' : '' ?>"><input type="checkbox" name="weekend_days[]" value="<?= $d ?>"<?= in_array($d, $weekend, true) ? ' checked' : '' ?> style="margin:0"><?= e(day_name($d)) ?></label><?php endfor; ?></div></div>
-  <h4 class="sec-t"><?= e(t('Notifikasi WhatsApp ke orang tua')) ?></h4>
+  <h4 class="sec-t" id="wa"><?= e(t('Notifikasi WhatsApp ke orang tua')) ?></h4>
   <div class="g-form two">
     <div class="<?= $cls('wa_notify') ?>"><label for="wa_notify"><?= e(t('Kirim notifikasi')) ?></label>
       <select class="inp" id="wa_notify" name="wa_notify"><?php foreach (Setting::WA_MODES as $k => $label): ?><option value="<?= e($k) ?>"<?= selected($s['wa_notify'], $k) ?>><?= e(t($label)) ?></option><?php endforeach; ?></select>
-      <p class="hint"><?= e(t('Fitur opsional (Fase 6). Membutuhkan gateway WhatsApp pihak ketiga.')) ?></p><?= field_error($errors, 'wa_notify') ?></div>
+      <p class="hint"><?= e(t('Satu pesan per siswa per hari. Terlambat dikirim saat scan; Alpa dikirim setelah semua sesi hari itu ditutup. Butuh cron bin/close-sessions.php tiap 5 menit.')) ?></p><?= field_error($errors, 'wa_notify') ?></div>
+    <div class="<?= $cls('wa_provider') ?>"><label for="wa_provider"><?= e(t('Penyedia gateway')) ?></label>
+      <select class="inp" id="wa_provider" name="wa_provider"><?php foreach (Setting::WA_PROVIDERS as $k => $label): ?><option value="<?= e($k) ?>"<?= selected($s['wa_provider'], $k) ?>><?= e(t($label)) ?></option><?php endforeach; ?></select>
+      <p class="hint"><?= e(t('Fonnte: isi token dari dasbor Fonnte (URL boleh kosong). Webhook: aplikasi mengirim POST JSON {phone, message} ke URL dengan header Authorization: Bearer token.')) ?></p><?= field_error($errors, 'wa_provider') ?></div>
     <div class="<?= $cls('wa_gateway_url') ?>"><label for="wa_gateway_url"><?= e(t('URL gateway')) ?></label><input class="inp mono" id="wa_gateway_url" name="wa_gateway_url" placeholder="https://" value="<?= e($s['wa_gateway_url']) ?>"><?= field_error($errors, 'wa_gateway_url') ?></div>
     <div class="<?= $cls('wa_gateway_token') ?>"><label for="wa_gateway_token"><?= e(t('Token gateway')) ?></label><input class="inp mono" id="wa_gateway_token" name="wa_gateway_token" type="password" autocomplete="off" placeholder="<?= $s['wa_gateway_token'] !== '' ? e(t('tersimpan; kosongkan bila tidak diubah')) : '' ?>"><?= field_error($errors, 'wa_gateway_token') ?></div>
+    <div class="<?= $cls('wa_template_alpa') ?>"><label for="wa_template_alpa"><?= e(t('Pesan Alpa')) ?></label><textarea class="inp" id="wa_template_alpa" name="wa_template_alpa" rows="3" maxlength="600"><?= e($s['wa_template_alpa']) ?></textarea><?= field_error($errors, 'wa_template_alpa') ?></div>
+    <div class="<?= $cls('wa_template_late') ?>"><label for="wa_template_late"><?= e(t('Pesan Terlambat')) ?></label><textarea class="inp" id="wa_template_late" name="wa_template_late" rows="3" maxlength="600"><?= e($s['wa_template_late']) ?></textarea><?= field_error($errors, 'wa_template_late') ?></div>
+  </div>
+  <p class="hint"><?= e(t('Isian yang bisa dipakai: {nama} {kelas} {tanggal} {jam} {menit} {sekolah}. Halaman riwayat dan antrean pesan: menu Notifikasi WA.')) ?></p>
+  <h4 class="sec-t"><?= e(t('Portal orang tua')) ?></h4>
+  <div class="g-form two">
+    <div class="<?= $cls('portal_enabled') ?>"><label for="portal_enabled"><?= e(t('Portal riwayat kehadiran')) ?></label>
+      <select class="inp" id="portal_enabled" name="portal_enabled"><option value="0"<?= selected($s['portal_enabled'], '0') ?>><?= e(t('Mati')) ?></option><option value="1"<?= selected($s['portal_enabled'], '1') ?>><?= e(t('Nyala')) ?></option></select>
+      <p class="hint"><?= e(t('Orang tua/siswa masuk di :u dengan NIS dan kode akses yang dibuat TU (halaman siswa atau kelas). Hanya bisa melihat riwayat anak sendiri.', ['u' => full_url('portal')])) ?></p><?= field_error($errors, 'portal_enabled') ?></div>
   </div>
   <div><button class="btn btn-primary" type="submit"><?= e(t('Simpan pengaturan sekolah')) ?></button></div>
 </form>

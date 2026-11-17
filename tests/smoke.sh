@@ -147,6 +147,41 @@ read -r st hist < <(php -r '$p = new PDO("sqlite:" . $argv[1]); echo $p->query("
 [ "$st" = H ] && [ "$hist" -ge 2 ] && echo "  ok   koreksi dengan alasan → H, riwayat $hist baris" || { echo "  FAIL koreksi: status=$st riwayat=$hist"; fail=1; }
 check "/admin/sesi/$SESS" 200
 check "/admin/sesi/$SESS/live" 200
+echo "Fase 6: notifikasi WhatsApp, portal orang tua:"
+sqlset() { php -r '$p = new PDO("sqlite:" . $argv[1]); $p->prepare("INSERT INTO settings (skey, svalue, updated_at) VALUES (?, ?, datetime()) ON CONFLICT(skey) DO UPDATE SET svalue = excluded.svalue")->execute([$argv[2], $argv[3]]);' "$TMP/smoke.sqlite" "$1" "$2"; }
+check /admin/notifikasi 200
+check /portal 404
+grep -q 'parent_phone\|"phone"' "$TMP/roster.json" && { echo "  FAIL roster kiosk berisi nomor HP"; fail=1; } || echo "  ok   roster kiosk tanpa nomor HP orang tua"
+sqlset wa_notify both; sqlset wa_provider sandbox; sqlset portal_enabled 1
+SBX="$ROOT/storage/logs/wa-sandbox.log"; before=$( [ -f "$SBX" ] && wc -l < "$SBX" || echo 0 )
+tok=$(curl -s -b "$CJ" "$BASE/admin/notifikasi" | grep -o 'name="_csrf" value="[^"]*"' | head -1 | cut -d'"' -f4)
+curl -s -o /dev/null -b "$CJ" -c "$CJ" -X POST "$BASE/admin/notifikasi/uji" --data-urlencode "_csrf=$tok" --data-urlencode "phone=0812-0000-0001"
+after=$( [ -f "$SBX" ] && wc -l < "$SBX" || echo 0 )
+[ "$after" -gt "$before" ] && echo "  ok   pesan uji sandbox tercatat" || { echo "  FAIL pesan uji sandbox tidak tercatat"; fail=1; }
+got=$(curl -s -o /dev/null -w '%{http_code}' -b "$CJ" -c "$CJ" -X POST "$BASE/admin/notifikasi/kirim" --data-urlencode "_csrf=$tok")
+[[ "$got" =~ ^30[123]$ ]] && echo "  ok   kirim antrean sekarang → $got" || { echo "  FAIL kirim antrean: $got"; fail=1; }
+check /admin/notifikasi 200
+# Kode portal untuk satu siswa (ditampilkan sekali) dan CSV per kelas
+curl -s -o /dev/null -b "$CJ" -c "$CJ" -X POST "$BASE/admin/siswa/$STUDENT_OWN/kode-portal" --data-urlencode "_csrf=$tok"
+PCODE=$(curl -s -b "$CJ" -c "$CJ" "$BASE/admin/siswa/$STUDENT_OWN" | grep -o 'data-portal-code>[A-Z0-9-]*' | cut -d'>' -f2)
+[ -n "$PCODE" ] && echo "  ok   kode portal ditampilkan sekali ($PCODE)" || { echo "  FAIL kode portal tidak tampil"; fail=1; }
+curl -s -b "$CJ" "$BASE/admin/siswa/$STUDENT_OWN" | grep -q 'data-portal-code' && { echo "  FAIL kode portal tampil lagi"; fail=1; } || echo "  ok   kode tidak tampil lagi setelah dimuat ulang"
+curl -s -D "$TMP/h.txt" -o "$TMP/kode.csv" -b "$CJ" -X POST "$BASE/admin/kelas/$OTHER/kode-portal" --data-urlencode "_csrf=$tok"
+grep -qi 'content-type: text/csv' "$TMP/h.txt" && grep -q 'Kode akses' "$TMP/kode.csv" && echo "  ok   CSV kode portal per kelas ($(($(wc -l < "$TMP/kode.csv") - 1)) siswa)" || { echo "  FAIL CSV kode portal"; fail=1; }
+NIS_OWN=$(php -r '$p = new PDO("sqlite:" . $argv[1]); echo $p->query("SELECT nis FROM students WHERE id = " . (int) $argv[2])->fetchColumn();' "$TMP/smoke.sqlite" "$STUDENT_OWN")
+PJ="$TMP/portal"
+ptok=$(curl -s -c "$PJ" -b "$PJ" "$BASE/portal" | grep -o 'name="_csrf" value="[^"]*"' | head -1 | cut -d'"' -f4)
+got=$(curl -s -o /dev/null -w '%{http_code}' -c "$PJ" -b "$PJ" -X POST "$BASE/portal/masuk" --data-urlencode "_csrf=$ptok" --data-urlencode "nis=$NIS_OWN" --data-urlencode "code=ZZZZ-ZZZZ")
+[ "$got" = 422 ] && echo "  ok   portal: kode salah ditolak" || { echo "  FAIL portal kode salah: $got"; fail=1; }
+got=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' -c "$PJ" -b "$PJ" -X POST "$BASE/portal/masuk" --data-urlencode "_csrf=$ptok" --data-urlencode "nis=$NIS_OWN" --data-urlencode "code=$PCODE")
+[[ "$got" =~ ^30[123].*/portal/siswa/$STUDENT_OWN$ ]] && echo "  ok   portal: masuk dengan NIS + kode" || { echo "  FAIL portal masuk: $got"; fail=1; }
+pcheck() { local got; got=$(curl -s -o "$TMP/p.html" -w '%{http_code}' -b "$PJ" "$BASE$1"); [[ "$got" =~ ^($2)$ ]] && printf '  ok   %-40s %s\n' "$1" "$got" || { printf '  FAIL %-40s %s (harap %s)\n' "$1" "$got" "$2"; fail=1; }; }
+pcheck "/portal/siswa/$STUDENT_OWN" 200
+pcheck "/portal/siswa/$STUDENT_OWN?bulan=2026-01" 200
+pcheck "/portal/siswa/$STUDENT_OTHER" 403
+pcheck "/portal/siswa/$((STUDENT_OWN + 1))" 403
+pcheck /admin 30[123]
+grep -q 'parent_phone\|62812' "$TMP/p.html" && { echo "  FAIL halaman portal berisi nomor HP"; fail=1; } || true
 tok=$(curl -s -b "$CJ" "$BASE/admin/perangkat" | grep -o 'name="_csrf" value="[^"]*"' | head -1 | cut -d'"' -f4)
 curl -s -o /dev/null -b "$CJ" -c "$CJ" -X POST "$BASE/admin/perangkat/1/cabut" --data-urlencode "_csrf=$tok"
 got=$(api /api/scan "$DTOK" '{"code":"X"}'); [ "$got" = 401 ] && echo "  ok   perangkat dicabut → token ditolak" || { echo "  FAIL token dicabut masih diterima: $got"; fail=1; }
@@ -167,7 +202,7 @@ echo "TU / Staff:"
 login tu.sekolah tu12345678
 for p in /admin /admin/siswa /admin/siswa/baru /admin/kelas "/admin/kelas/$OTHER" /admin/jadwal /admin/impor /admin/tahun-ajaran /admin/master/jam /admin/pengaturan /admin/sesi "/admin/sesi/$SESS"; do check "$p" 200; done
 for p in /admin/izin "/admin/izin/baru?kelas=$OTHER" "/admin/rekap/kelas/$OTHER" "/admin/rekap/siswa/$STUDENT_OTHER" /admin/rekap/sekolah; do check "$p" 200; done
-for p in /admin/akun /admin/audit /admin/perangkat /admin/kecepatan; do check "$p" 403; done
+for p in /admin/akun /admin/audit /admin/perangkat /admin/kecepatan /admin/notifikasi; do check "$p" 403; done
 
 echo "Kepala Sekolah (hanya lihat):"
 login kepsek kepsek12345
@@ -179,7 +214,7 @@ echo "Guru (wali kelas X-1):"
 login guru01 guru12345
 for p in /admin /admin/kelas "/admin/kelas/$OWN" "/admin/siswa?kelas=$OWN" "/admin/siswa/$STUDENT_OWN" "/admin/jadwal?kelas=$OWN" /admin/pengaturan /admin/sesi "/admin/sesi/$SESS" "/admin/sesi/$SESS/live"; do check "$p" 200; done
 for p in "/admin/kelas/$OTHER" "/admin/siswa?kelas=$OTHER" "/admin/siswa/$STUDENT_OTHER" "/admin/jadwal?kelas=$OTHER" \
-         /admin/siswa/baru "/admin/kelas/$OWN/ubah" /admin/impor /admin/akun /admin/audit /admin/master/jam /admin/tahun-ajaran /admin/kartu "/admin/kartu/cetak?kelas=$OWN" "/admin/siswa/$STUDENT_OTHER/foto" /admin/perangkat /admin/kecepatan \
+         /admin/siswa/baru "/admin/kelas/$OWN/ubah" /admin/impor /admin/akun /admin/audit /admin/master/jam /admin/tahun-ajaran /admin/kartu "/admin/kartu/cetak?kelas=$OWN" "/admin/siswa/$STUDENT_OTHER/foto" /admin/perangkat /admin/kecepatan /admin/notifikasi \
          "/admin/rekap/kelas/$OTHER" "/admin/rekap/siswa/$STUDENT_OTHER" /admin/rekap/sekolah "/admin/izin/baru?kelas=$OTHER" "/admin/izin?kelas=$OTHER"; do check "$p" 403; done
 for p in /admin/izin "/admin/izin/baru?kelas=$OWN" /admin/rekap "/admin/rekap/kelas/$OWN" "/admin/rekap/siswa/$STUDENT_OWN"; do check "$p" 200; done
 

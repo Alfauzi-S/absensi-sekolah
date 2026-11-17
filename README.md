@@ -13,8 +13,8 @@ Dokumen acuan: **PRD Absensi QR Siswa** (dokumen proyek) berisi peran, alur scan
 | 2 | Kartu QR siswa (kode acak 12 karakter berversi), foto siswa, cetak PDF CR80 massal | Selesai |
 | 3 | Scanner kiosk dan inti absensi (`POST /api/scan`) | Selesai |
 | 4 | Performa, roster lokal, antrean offline, metrik kecepatan scan | Selesai |
-| 5 | Izin/sakit, koreksi, rekap, dashboard | Selesai (PR ini) |
-| 6 | Notifikasi WhatsApp dan portal orang tua (opsional, diatur pengurus) | Belum |
+| 5 | Izin/sakit, koreksi, rekap, dashboard | Selesai |
+| 6 | Notifikasi WhatsApp dan portal orang tua (opsional, diatur pengurus) | Selesai (PR ini) |
 | 7 | Pilot dan go-live | Belum |
 
 Catatan Fase 1: seluruh modul event/peserta dari kode asal sudah diganti dengan data sekolah. Skema baru (`database/schema.*.sql`): `settings`, `users`, `academic_years`, `semesters`, `rooms`, `classes`, `students`, `class_members`, `subjects`, `periods`, `schedules`, `holidays`, `audit_logs`.
@@ -30,6 +30,16 @@ Catatan Fase 1: seluruh modul event/peserta dari kode asal sudah diganti dengan 
 | Wali kelas | Guru yang tercatat di `classes.homeroom_teacher_id`; mendapat izin `class:manage` di kelas itu (dipakai Fase 5 untuk izin/koreksi) |
 
 Pengaturan sekolah yang dipilih pengurus (PRD 4.3) disimpan di tabel `settings`: mode absensi (masuk/pulang, per jam, keduanya), jam masuk/pulang dan batas terlambat, jenis scanner (USB/kamera), hari libur mingguan, notifikasi WA (mati secara bawaan).
+
+### Notifikasi WhatsApp dan portal orang tua (Fase 6)
+
+Keduanya **mati secara bawaan** dan dinyalakan Super Admin di Pengaturan.
+
+- **Notifikasi WhatsApp** (Pengaturan → Notifikasi WhatsApp; riwayat di menu **Notifikasi WA**): kirim untuk Alpa, Terlambat, atau keduanya. Penyedia: **Sandbox** (tidak mengirim, hanya mencatat ke `storage/logs/wa-sandbox.log`; untuk uji coba), **Fonnte** (isi token), atau **Webhook JSON** untuk gateway lain (POST `{"phone","message"}` ke URL https dengan `Authorization: Bearer <token>`). Teks pesan bisa diubah dengan isian `{nama} {kelas} {tanggal} {jam} {menit} {sekolah}`.
+- **Aturan kirim**: paling banyak **satu pesan per siswa per hari** (dijaga indeks unik di database, aman walau cron dan tombol "Kirim sekarang" berjalan bersamaan). Terlambat diantrekan saat scan bila status harian siswa Terlambat; Alpa diantrekan setelah semua sesi kelas itu hari ini ditutup (mode per jam: setelah jam pelajaran terakhir). Sebelum dikirim status diperiksa ulang; bila sudah berubah (izin dicatat, koreksi, scan offline masuk belakangan) pesan dilewati, dan pesan Alpa yang belum terkirim diganti menjadi Terlambat. Gagal kirim (jaringan, 5xx, 429) **dicoba ulang** setelah 1, 5, 15, 60 menit; setelah 5 kali menjadi Gagal dan bisa dikirim ulang dari halaman Notifikasi. Kesalahan permanen (token salah, nomor ditolak) tidak diulang. Nomor kosong/tidak valid → Dilewati.
+- **Pengiriman** berjalan dari cron `bin/close-sessions.php` (tiap 5 menit, sama seperti penutupan sesi) atau, sebagai cadangan, setelah jawaban kiosk `/api/device/me` terkirim. Nomor HP orang tua hanya dibaca di server dan **tidak pernah dikirim ke perangkat scanner**; di layar admin nomor disamarkan (0812****1049).
+- **Portal orang tua** (`/portal`, nyalakan di Pengaturan → Portal orang tua): orang tua masuk dengan **NIS + kode akses 8 karakter** lalu melihat riwayat kehadiran anaknya per bulan (status, jam scan, menit terlambat, keterangan izin) dan ringkasan semester. Kode dibuat TU/Super Admin di halaman siswa (ditampilkan sekali) atau per kelas sebagai **CSV** untuk dibagikan; disimpan sebagai hash, membuat kode baru membatalkan yang lama. Satu ponsel bisa membuka beberapa anak (kakak-adik). Membuka anak lain dengan mengganti ID di alamat → **403** dan tercatat di audit log. Percobaan masuk dibatasi (10 per IP dan 5 per NIS tiap 15 menit).
+- Tes: `tests/Unit/NotifierTest.php` (**100 siswa alpa di gateway sandbox → tepat 100 pesan, tidak ada yang ganda, 25 nomor yang gagal dicoba ulang lalu terkirim**; gagal permanen setelah 5 kali; terlambat diantrekan sekali; status berubah → dilewati; klaim bersamaan), `tests/Unit/PortalTest.php` (kode hanya hash, kode lama batal, anak lain ditolak), `tests/smoke.sh` (pesan uji sandbox, kode portal tampil sekali, CSV per kelas, masuk portal, **ganti ID → 403**, roster kiosk tanpa nomor HP).
 
 ### Izin, koreksi, rekap, dashboard (Fase 5)
 

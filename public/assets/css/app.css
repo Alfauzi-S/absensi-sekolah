@@ -632,3 +632,8 @@ a.stat:hover{border-color:var(--cyan)}
 @media (min-width:900px){.g-3{grid-template-columns:repeat(3,1fr)}}
 .nowrap{white-space:nowrap}
 .row.wrap{flex-wrap:wrap}
+/* Portal orang tua (Fase 6) */
+.portal{max-width:820px;margin:0 auto;padding:16px 16px 40px;display:flex;flex-direction:column;gap:16px}
+.portal-top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0 4px;padding-right:56px}
+.portal .card{margin:0}
+.center{text-align:center}

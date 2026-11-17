@@ -188,6 +188,9 @@ final class ScanService
             'leave_id' => $leave['id'] ?? null,
         ]);
         if ($id !== null) {
+            if ($status === 'T') {
+                self::notifyLate($session, $studentId, $classId, $scannedAt, $late);
+            }
             return ['state' => $state, 'status' => $status, 'late_minutes' => $late, 'scanned_at' => $scannedAt];
         }
         $prev = Attendance::find((int) $session['id'], $studentId);
@@ -204,11 +207,27 @@ final class ScanService
                 if ($new !== $prev['status']) {
                     StatusHistory::add((int) $prev['id'], (int) $session['id'], $studentId, $prev['status'], $new, 'scan', null, $userId);
                 }
+                if ($new === 'T') {
+                    self::notifyLate($session, $studentId, $classId, $scannedAt, $late);
+                }
                 return ['state' => $state, 'status' => $new, 'late_minutes' => $late, 'scanned_at' => $scannedAt];
             }
             $prev = Attendance::find((int) $session['id'], $studentId);
         }
         return ['state' => 'dup', 'status' => (string) $prev['status'], 'late_minutes' => (int) $prev['late_minutes'], 'scanned_at' => (string) ($prev['scanned_at'] ?: $prev['created_at'])];
+    }
+
+    /** Antrekan WhatsApp Terlambat (Fase 6). Tidak pernah menggagalkan scan. */
+    private static function notifyLate(array $session, int $studentId, int $classId, string $scannedAt, int $late): void
+    {
+        if (!in_array($session['kind'], Recap::DAILY_KINDS, true) || !Notifier::enabled('T')) {
+            return;
+        }
+        try {
+            Notifier::enqueueLate($studentId, $classId, (string) $session['session_date'], $scannedAt, $late);
+        } catch (\Throwable $e) {
+            error_log('notifikasi terlambat gagal diantrekan: ' . $e->getMessage());
+        }
     }
 
     /**
