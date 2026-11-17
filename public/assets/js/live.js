@@ -32,7 +32,7 @@
         st.innerHTML = badge(r.status, r.late);
         tr.querySelector('[data-f="at"]').textContent = r.at || '—';
         tr.querySelector('[data-f="method"]').textContent = r.method ? T(METHOD[r.method] || r.method) : '';
-        var act = tr.querySelector('[data-f="act"]'); if (act && r.status) act.innerHTML = '';
+        var act = tr.querySelector('[data-f="act"]'); if (act && r.status) act.querySelectorAll('.js-manual').forEach(function (x) { x.remove(); });
         tr.setAttribute('data-st', r.status || '');
         tr.style.background = 'var(--ok-bg)'; setTimeout(function () { tr.style.background = ''; }, 1500);
       }
@@ -50,4 +50,23 @@
   }
   setInterval(tick, every);
   document.addEventListener('visibilitychange', function () { if (!document.hidden) tick(); });
+})();
+
+/* Koreksi status: tombol per siswa mengisi dialog koreksi (satu dialog untuk semua baris). */
+(function () {
+  'use strict';
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-fix]');
+    if (!b) return;
+    var dlg = document.getElementById('dlg-fix');
+    if (!dlg) return;
+    dlg.querySelector('[name="student_id"]').value = b.getAttribute('data-fix');
+    dlg.querySelector('[data-fix-name]').textContent = b.getAttribute('data-name') || '';
+    var cur = b.getAttribute('data-st') || '';
+    var sel = dlg.querySelector('[name="status"]');
+    sel.value = cur && cur !== sel.value ? (cur === 'A' ? 'H' : 'A') : sel.value;
+    var reset = dlg.querySelector('option[value="reset"]');
+    if (reset) reset.disabled = b.getAttribute('data-corrected') !== '1';
+    dlg.querySelector('[name="reason"]').value = '';
+  }, true);
 })();

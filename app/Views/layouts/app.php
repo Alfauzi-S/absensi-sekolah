@@ -13,6 +13,8 @@ $nav = array_values(array_filter([
     ['students', 'admin/siswa', 'users', 'Siswa'],
     ['schedules', 'admin/jadwal', 'calendar', 'Jadwal'],
     ['sessions', 'admin/sesi', 'scan', 'Sesi Absensi'],
+    can('reports') || \App\Services\Access::isHomeroom($user) ? ['leaves', 'admin/izin', 'file', 'Izin dan Sakit'] : null,
+    can('reports') || \App\Services\Access::isHomeroom($user) ? ['recap', 'admin/rekap', 'chart', 'Rekap'] : null,
     can('master') ? ['cards', 'admin/kartu', 'qr', 'Kartu QR'] : null,
     can('master') ? ['years', 'admin/tahun-ajaran', 'history', 'Tahun Ajaran'] : null,
     can('master') ? ['master-ruangan', 'admin/master/ruangan', 'pin', 'Ruangan'] : null,

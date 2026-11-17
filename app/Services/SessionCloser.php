@@ -6,10 +6,13 @@ namespace App\Services;
 use App\Core\Database as DB;
 use App\Core\RateLimiter;
 use App\Models\Attendance;
+use App\Models\Leave;
 use App\Models\Session;
 
 /**
- * Menutup sesi: siswa yang belum tercatat menjadi Alpa (method auto). Izin/sakit (Fase 5) akan dikecualikan di sini.
+ * Menutup sesi: siswa yang belum tercatat menjadi Alpa (method auto), kecuali yang punya izin/sakit/dispensasi pada tanggal itu
+ * (mendapat status izinnya). Sebelum menutup, sesi hari ini dibuat untuk setiap ruangan yang punya perangkat aktif, supaya
+ * kelas yang scannernya mati seharian tetap punya sesi dan Alpa.
  * Dijalankan oleh bin/close-sessions.php (cron) dan, sebagai cadangan, sesekali dari permintaan kiosk.
  */
 final class SessionCloser
@@ -21,10 +24,29 @@ final class SessionCloser
     {
         $now ??= now();
         $limit = date('Y-m-d H:i:s', strtotime($now) - self::GRACE_MINUTES * 60);
+        self::materialize(substr($now, 0, 10), $now);
         $n = 0;
         foreach (Session::expired($limit) as $s) {
             self::close($s, null);
             $n++;
+        }
+        return $n;
+    }
+
+    /**
+     * Buat sesi terjadwal hari ini (yang sudah dimulai) untuk ruangan yang punya perangkat aktif. Idempoten (slot_key unik).
+     * @return int jumlah spesifikasi sesi yang diperiksa
+     */
+    public static function materialize(string $date, string $now): int
+    {
+        $n = 0;
+        foreach (DB::all("SELECT DISTINCT room_id FROM devices WHERE status = 'active' AND room_id IS NOT NULL") as $r) {
+            foreach (SessionResolver::daySpecs((int) $r['room_id'], $date) as $spec) {
+                if ($spec['scan_from'] <= $now) {
+                    Session::createOrGet($spec);
+                    $n++;
+                }
+            }
         }
         return $n;
     }
@@ -34,9 +56,11 @@ final class SessionCloser
     {
         return DB::transaction(static function () use ($session, $userId): int {
             $n = 0;
+            $leaves = Leave::activeForClass((int) $session['class_id'], (string) $session['session_date']);
             foreach (Attendance::missingStudentIds($session) as $sid) {
+                $leave = $leaves[$sid] ?? null;
                 if (Attendance::tryInsert(['session_id' => (int) $session['id'], 'student_id' => $sid, 'class_id' => (int) $session['class_id'],
-                    'status' => 'A', 'method' => 'auto', 'changed_by' => $userId]) !== null) {
+                    'status' => $leave['kind'] ?? 'A', 'method' => 'auto', 'changed_by' => $userId, 'leave_id' => $leave['id'] ?? null]) !== null && !$leave) {
                     $n++;
                 }
             }

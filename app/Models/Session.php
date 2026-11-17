@@ -122,7 +122,7 @@ final class Session
     /** Daftar siswa kelas beserta kehadirannya pada sesi ini (siswa tanpa baris = belum scan). */
     public static function roster(array $session): array
     {
-        return DB::all('SELECT st.id, st.nis, st.full_name, st.gender, st.photo_path, a.status, a.scanned_at, a.late_minutes, a.method, a.note
+        return DB::all('SELECT st.id, st.nis, st.full_name, st.gender, st.photo_path, a.status, a.scanned_at, a.late_minutes, a.method, a.note, a.corrected, a.leave_id
             FROM class_members m JOIN students st ON st.id = m.student_id
             LEFT JOIN attendances a ON a.session_id = ? AND a.student_id = st.id
             WHERE m.class_id = ? ORDER BY st.full_name ASC', [(int) $session['id'], (int) $session['class_id']]);

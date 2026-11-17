@@ -35,6 +35,7 @@ final class Attendance
                 'note' => isset($d['note']) && $d['note'] !== '' ? mb_substr($d['note'], 0, 200) : null,
                 'changed_by' => $d['changed_by'] ?? null,
                 'changed_at' => isset($d['changed_by']) ? now() : null,
+                'leave_id' => $d['leave_id'] ?? null,
                 'created_at' => now(),
             ]);
         } catch (\PDOException $e) {
