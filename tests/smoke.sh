@@ -59,7 +59,7 @@ for p in /admin /admin/pengaturan /admin/akun /admin/akun/baru /admin/akun/2 /ad
          "/admin/siswa/ekspor?format=csv" /admin/master/ruangan /admin/master/mapel /admin/master/jam /admin/master/libur \
          "/admin/master/ruangan?ubah=1" /admin/jadwal "/admin/jadwal?kelas=$OWN" "/admin/jadwal/baru?kelas=$OWN" /admin/jadwal/1/ubah \
          /admin/impor "/admin/impor/template/siswa?format=csv" "/admin/impor/template/jadwal?format=csv" /admin/kartu \
-         /admin/perangkat /admin/sesi "/admin/sesi?tanggal=2026-11-16" /kiosk; do check "$p" 200; done
+         /admin/perangkat /admin/sesi "/admin/sesi?tanggal=2026-11-16" /admin/kecepatan "/admin/kecepatan?hari=1" /kiosk /kiosk-sw.js; do check "$p" 200; done
 
 echo "Kartu QR: terbitkan satu kelas lewat form, lalu PDF:"
 tok=$(curl -s -b "$CJ" "$BASE/admin/kartu" | grep -o 'name="_csrf" value="[^"]*"' | head -1 | cut -d'"' -f4)
@@ -106,6 +106,23 @@ rows=$(php -r '$p = new PDO("sqlite:" . $argv[1]); echo $p->query("SELECT COUNT(
 [ "$n_ok" = 1 ] && [ "$n_dup" = 49 ] && [ "$rows" = 1 ] && echo "  ok   50 scan bersamaan: 1 tersimpan, 49 duplikat, 1 baris" || { echo "  FAIL 50 scan bersamaan: ok=$n_ok dup=$n_dup baris=$rows"; fail=1; }
 got=$(api /api/scan "$DTOK" "{\"code\":\"$(php -r '$p = new PDO("sqlite:" . $argv[1]); echo $p->query("SELECT code FROM cards WHERE student_id = " . (int) $argv[2])->fetchColumn();' "$TMP/smoke.sqlite" "$STUDENT_OTHER")\"}")
 grep -q '"state":"wrongclass"' "$TMP/api.json" && echo "  ok   siswa kelas lain → salah kelas" || { echo "  FAIL salah kelas: $(cat "$TMP/api.json")"; fail=1; }
+echo "Fase 4: roster, batch 3 kali, metrik:"
+got=$(curl -s -o "$TMP/roster.json" -w '%{http_code}' "$BASE/api/roster" -H "X-Device-Token: $DTOK"); RV=$(php -r '$d = json_decode(file_get_contents($argv[1]), true); echo count($d["students"] ?? []) > 0 && count($d["sessions"] ?? []) > 0 ? $d["version"] : "";' "$TMP/roster.json")
+[ "$got" = 200 ] && [ -n "$RV" ] && echo "  ok   /api/roster memuat siswa dan sesi" || { echo "  FAIL /api/roster: $got $(head -c 300 "$TMP/roster.json")"; fail=1; }
+curl -s "$BASE/api/roster?v=$RV" -H "X-Device-Token: $DTOK" | grep -q '"unchanged":true' && echo "  ok   roster versi sama → unchanged" || { echo "  FAIL roster unchanged"; fail=1; }
+got=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/roster"); [ "$got" = 401 ] && echo "  ok   roster tanpa token → 401" || { echo "  FAIL roster tanpa token: $got"; fail=1; }
+php -r 'date_default_timezone_set("Asia/Makassar"); $p = new PDO("sqlite:" . $argv[1]); $items = [];
+foreach ($p->query("SELECT c.code FROM cards c JOIN class_members m ON m.student_id = c.student_id WHERE m.class_id = " . (int) $argv[2] . " AND c.status = \"active\" AND c.student_id <> " . (int) $argv[3] . " LIMIT 5")->fetchAll(PDO::FETCH_COLUMN) as $i => $c) {
+  $items[] = ["scan_id" => "smoke-batch-0000000" . $i, "code" => $c, "scanned_at" => date("c", time() - 300 + $i)];
+  $met[] = ["scan_id" => "smoke-batch-0000000" . $i, "source" => "usb", "t_feedback" => 5, "t_total" => 5, "queued" => true]; }
+echo json_encode(["sent_at" => date("c"), "scans" => $items, "metrics" => $met]);' "$TMP/smoke.sqlite" "$OWN" "$STUDENT_OWN" > "$TMP/batch.json"
+for i in 1 2 3; do got=$(curl -s -o "$TMP/batch-out.json" -w '%{http_code}' -X POST "$BASE/api/scan/batch" -H "Content-Type: application/json" -H "X-Device-Token: $DTOK" --data-binary "@$TMP/batch.json"); done
+read -r B_ROWS B_LATE B_MET < <(php -r '$p = new PDO("sqlite:" . $argv[1]); $s = (int) $argv[2];
+echo $p->query("SELECT COUNT(*) FROM attendances WHERE session_id = $s AND student_id <> " . (int) $argv[3])->fetchColumn(), " ",
+  $p->query("SELECT COUNT(*) FROM attendances WHERE session_id = $s AND student_id <> " . (int) $argv[3] . " AND scanned_at > datetime(\"now\", \"+8 hours\", \"-200 seconds\")")->fetchColumn(), " ",
+  $p->query("SELECT COUNT(*) FROM scan_metrics WHERE scan_id LIKE \"smoke-batch-%\"")->fetchColumn(), "\n";' "$TMP/smoke.sqlite" "$SESS" "$STUDENT_OWN")
+[ "$got" = 200 ] && [ "$B_ROWS" = 5 ] && [ "$B_LATE" = 0 ] && [ "$B_MET" = 5 ] && echo "  ok   batch 3 kali: 5 baris, waktu scan = waktu di perangkat, 5 metrik" || { echo "  FAIL batch: http=$got baris=$B_ROWS waktu_sinkron=$B_LATE metrik=$B_MET $(head -c 300 "$TMP/batch-out.json")"; fail=1; }
+check /admin/kecepatan 200
 check "/admin/sesi/$SESS" 200
 check "/admin/sesi/$SESS/live" 200
 tok=$(curl -s -b "$CJ" "$BASE/admin/perangkat" | grep -o 'name="_csrf" value="[^"]*"' | head -1 | cut -d'"' -f4)
@@ -127,18 +144,18 @@ grep -q 'Tanpa NIS\|Baris' "$TMP/impor.html" && echo "  ok   baris gagal dilapor
 echo "TU / Staff:"
 login tu.sekolah tu12345678
 for p in /admin /admin/siswa /admin/siswa/baru /admin/kelas "/admin/kelas/$OTHER" /admin/jadwal /admin/impor /admin/tahun-ajaran /admin/master/jam /admin/pengaturan /admin/sesi "/admin/sesi/$SESS"; do check "$p" 200; done
-for p in /admin/akun /admin/audit /admin/perangkat; do check "$p" 403; done
+for p in /admin/akun /admin/audit /admin/perangkat /admin/kecepatan; do check "$p" 403; done
 
 echo "Kepala Sekolah (hanya lihat):"
 login kepsek kepsek12345
 for p in /admin /admin/siswa /admin/kelas "/admin/kelas/$OTHER" /admin/jadwal "/admin/siswa/ekspor?format=csv" /admin/sesi "/admin/sesi/$SESS"; do check "$p" 200; done
-for p in /admin/siswa/baru /admin/kelas/baru /admin/impor /admin/akun /admin/audit /admin/master/ruangan /admin/tahun-ajaran /admin/kartu "/admin/kartu/cetak?kelas=$OWN" /admin/perangkat; do check "$p" 403; done
+for p in /admin/siswa/baru /admin/kelas/baru /admin/impor /admin/akun /admin/audit /admin/master/ruangan /admin/tahun-ajaran /admin/kartu "/admin/kartu/cetak?kelas=$OWN" /admin/perangkat /admin/kecepatan; do check "$p" 403; done
 
 echo "Guru (wali kelas X-1):"
 login guru01 guru12345
 for p in /admin /admin/kelas "/admin/kelas/$OWN" "/admin/siswa?kelas=$OWN" "/admin/siswa/$STUDENT_OWN" "/admin/jadwal?kelas=$OWN" /admin/pengaturan /admin/sesi "/admin/sesi/$SESS" "/admin/sesi/$SESS/live"; do check "$p" 200; done
 for p in "/admin/kelas/$OTHER" "/admin/siswa?kelas=$OTHER" "/admin/siswa/$STUDENT_OTHER" "/admin/jadwal?kelas=$OTHER" \
-         /admin/siswa/baru "/admin/kelas/$OWN/ubah" /admin/impor /admin/akun /admin/audit /admin/master/jam /admin/tahun-ajaran /admin/kartu "/admin/kartu/cetak?kelas=$OWN" "/admin/siswa/$STUDENT_OTHER/foto" /admin/perangkat; do check "$p" 403; done
+         /admin/siswa/baru "/admin/kelas/$OWN/ubah" /admin/impor /admin/akun /admin/audit /admin/master/jam /admin/tahun-ajaran /admin/kartu "/admin/kartu/cetak?kelas=$OWN" "/admin/siswa/$STUDENT_OTHER/foto" /admin/perangkat /admin/kecepatan; do check "$p" 403; done
 
 echo "Tanpa login:"
 rm -f "$CJ"

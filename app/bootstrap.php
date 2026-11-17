@@ -65,7 +65,10 @@ session_set_cookie_params([
     'httponly' => true,
     'samesite' => 'Lax',
 ]);
-session_start();
+// API perangkat (kiosk) memakai token di header, bukan sesi: tanpa session_start tidak ada kunci file sesi maupun cookie per scan.
+if (!(is_api_request() && !empty($_SERVER['HTTP_X_DEVICE_TOKEN']))) {
+    session_start();
+}
 
 // Bahasa tampilan: ?lang=id|en disimpan di sesi dan cookie (1 tahun)
 $requestedLang = $_GET['lang'] ?? null;

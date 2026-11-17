@@ -22,6 +22,7 @@ $nav = array_values(array_filter([
     can('master') ? ['import', 'admin/impor', 'upload', 'Impor Data'] : null,
     can('accounts') ? ['accounts', 'admin/akun', 'shield', 'Akun Pengguna'] : null,
     can('accounts') ? ['devices', 'admin/perangkat', 'scan', 'Perangkat Scanner'] : null,
+    can('accounts') ? ['speed', 'admin/kecepatan', 'chart', 'Kecepatan Scan'] : null,
     can('audit') ? ['audit', 'admin/audit', 'eye', 'Audit Log'] : null,
     ['settings', 'admin/pengaturan', 'sliders', 'Pengaturan'],
 ]));

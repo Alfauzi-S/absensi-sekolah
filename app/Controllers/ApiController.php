@@ -6,6 +6,7 @@ namespace App\Controllers;
 use App\Core\RateLimiter;
 use App\Models\Device;
 use App\Models\Setting;
+use App\Services\Roster;
 use App\Services\ScanService;
 use App\Services\SessionCloser;
 use App\Services\SessionResolver;
@@ -39,6 +40,21 @@ final class ApiController extends Controller
         ]);
     }
 
+    /** Kirim JSON, selesaikan request ke klien, lalu kerjakan yang tertunda (log scan, metrik) tanpa membuat kiosk menunggu. */
+    private function respondThenFlush(array $out): never
+    {
+        http_response_code(200);
+        header('Content-Type: application/json; charset=utf-8');
+        header('Cache-Control: no-store');
+        echo json_encode($out, JSON_UNESCAPED_UNICODE);
+        if (function_exists('fastcgi_finish_request')) {
+            session_write_close();
+            fastcgi_finish_request();
+        }
+        ScanService::flushDeferred();
+        exit;
+    }
+
     /** POST /api/device/pair {code} → token. Dibatasi 10 percobaan / 10 menit per IP. */
     public function pair(): void
     {
@@ -59,11 +75,17 @@ final class ApiController extends Controller
         json_out(['ok' => true, 'token' => $res['token'], 'device' => $this->deviceOut($res['device'])]);
     }
 
-    /** GET /api/device/me → identitas perangkat, pengaturan scanner, sesi yang sedang berlaku. Dipanggil kiosk saat mulai dan berkala. */
+    /**
+     * GET /api/device/me?q=<antrean>&t=<jam perangkat ISO> → identitas perangkat, pengaturan scanner, sesi yang sedang berlaku.
+     * Dipanggil kiosk saat mulai dan tiap 30 detik; sekaligus melaporkan ukuran antrean offline dan selisih jam perangkat.
+     */
     public function me(): void
     {
         $device = $this->device();
-        Device::touch((int) $device['id'], client_ip());
+        $now = now();
+        $queue = isset($_GET['q']) && ctype_digit((string) $_GET['q']) ? (int) $_GET['q'] : null;
+        $offset = query('t') !== '' && strtotime(query('t')) !== false ? (strtotime($now) - strtotime(query('t'))) * 1000 : null;
+        Device::report((int) $device['id'], client_ip(), $queue, $offset);
         $this->cookie((string) $_SERVER['HTTP_X_DEVICE_TOKEN']);
         SessionCloser::maybeRun();
         $sessions = $device['room_id'] ? SessionResolver::resolve((int) $device['room_id']) : [];
@@ -72,16 +94,51 @@ final class ApiController extends Controller
             'device' => $this->deviceOut($device),
             'settings' => ['scanner_mode' => Setting::get('scanner_mode'), 'attendance_mode' => Setting::get('attendance_mode'), 'school_name' => Setting::get('school_name')],
             'sessions' => array_map([ScanService::class, 'sessionOut'], $sessions),
-            'server_time' => now(),
+            'server_time' => $now,
+            'server_ms' => (int) round(microtime(true) * 1000),
         ]);
     }
 
-    /** POST /api/scan {scan_id, code, scanned_at, metrics} → hasil. Satu request, atomik, idempoten. */
+    /** GET /api/roster?v=<versi> → kartu + sesi hari ini untuk ruangan perangkat; {unchanged:true} bila versi sama. */
+    public function roster(): void
+    {
+        $device = $this->device();
+        $r = $device['room_id'] ? Roster::forRoom((int) $device['room_id']) : ['date' => today(), 'mode' => Setting::get('attendance_mode'), 'sessions' => [], 'students' => [], 'classes' => [], 'version' => 'empty'];
+        $meta = ['ok' => true, 'server_time' => now(), 'server_ms' => (int) round(microtime(true) * 1000), 'version' => $r['version']];
+        if (query('v') === $r['version']) {
+            json_out($meta + ['unchanged' => true]);
+        }
+        json_out($meta + $r);
+    }
+
+    /** POST /api/scan {scan_id, code, scanned_at, sent_at, metrics?} → hasil. Satu request, atomik, idempoten. */
     public function scan(): void
     {
         $device = $this->device();
-        $out = ScanService::scan($device, json_body());
-        json_out($out, 200);
+        $body = json_body();
+        $out = ScanService::scan($device, $body, null, true);
+        $this->piggyback($device, $body);
+        $this->respondThenFlush($out);
+    }
+
+    /** POST /api/scan/batch {sent_at, scans:[…], metrics:[…], queue_size} → hasil per scan. Untuk antrean offline; idempoten. */
+    public function batch(): void
+    {
+        $device = $this->device();
+        $body = json_body();
+        $out = ScanService::batch($device, $body, null, true);
+        if (isset($body['queue_size']) && is_numeric($body['queue_size'])) {
+            Device::report((int) $device['id'], client_ip(), (int) $body['queue_size'], $out['clock_offset_ms']);
+        }
+        $this->respondThenFlush($out);
+    }
+
+    /** Metrik scan sebelumnya yang menumpang pada request scan tunggal (prev_metrics). */
+    private function piggyback(array $device, array $body): void
+    {
+        if (!empty($body['prev_metrics']) && is_array($body['prev_metrics'])) {
+            ScanService::batch($device, ['metrics' => $body['prev_metrics']], null, true);
+        }
     }
 
     private function deviceOut(array $d): array

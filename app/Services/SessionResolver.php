@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Core\Cache;
 use App\Core\Database as DB;
 use App\Models\AcademicYear;
 use App\Models\Master;
@@ -27,7 +28,7 @@ final class SessionResolver
     public const GRACE_BEFORE = 10; // menit sebelum jam mulai scan sudah diterima
 
     /** @return array<int, array> spesifikasi sesi yang berlaku (belum tentu ada di tabel sessions) */
-    public static function specs(int $roomId, ?string $now = null): array
+    public static function specs(int $roomId, ?string $now = null, bool $wholeDay = false): array
     {
         $now ??= now();
         $date = substr($now, 0, 10);
@@ -38,15 +39,21 @@ final class SessionResolver
         $tolerance = max(0, Setting::int('late_tolerance_minutes'));
         $out = [];
         if ($mode === Setting::ATT_MODE_PERIOD || $mode === Setting::ATT_MODE_BOTH) {
-            $out = array_merge($out, self::periodSpecs($roomId, $now, $tolerance));
+            $out = array_merge($out, self::periodSpecs($roomId, $now, $tolerance, $wholeDay));
         }
         if ($mode === Setting::ATT_MODE_DAILY || $mode === Setting::ATT_MODE_BOTH) {
-            $out = array_merge($out, self::dailySpecs($roomId, $now, $tolerance));
+            $out = array_merge($out, self::dailySpecs($roomId, $now, $tolerance, $wholeDay));
         }
         return $out;
     }
 
-    private static function periodSpecs(int $roomId, string $now, int $tolerance): array
+    /** Semua sesi yang mungkin berlaku di ruangan pada satu tanggal (untuk roster kiosk; tidak menulis DB). */
+    public static function daySpecs(int $roomId, string $date): array
+    {
+        return self::specs($roomId, $date . ' 12:00:00', true);
+    }
+
+    private static function periodSpecs(int $roomId, string $now, int $tolerance, bool $wholeDay = false): array
     {
         $semester = Semester::active();
         if (!$semester) {
@@ -55,7 +62,8 @@ final class SessionResolver
         $date = substr($now, 0, 10);
         $day = (int) date('N', strtotime($date));
         $periods = Master::periods();
-        $rows = DB::all('SELECT h.*, c.name AS class_name FROM schedules h JOIN classes c ON c.id = h.class_id
+        $rows = DB::all('SELECT h.*, c.name AS class_name, sb.name AS subject_name FROM schedules h JOIN classes c ON c.id = h.class_id
+            LEFT JOIN subjects sb ON sb.id = h.subject_id
             WHERE h.semester_id = ? AND h.day_of_week = ? AND (h.room_id = ? OR (h.room_id IS NULL AND c.room_id = ?)) ORDER BY h.period_start',
             [(int) $semester['id'], $day, $roomId, $roomId]);
         $current = [];
@@ -69,7 +77,7 @@ final class SessionResolver
             $starts = $date . ' ' . substr((string) $ps['start_time'], 0, 5) . ':00';
             $ends = $date . ' ' . substr((string) $pe['end_time'], 0, 5) . ':00';
             $scanFrom = self::addMinutes($starts, -self::GRACE_BEFORE);
-            if ($now < $scanFrom || $now >= $ends) {
+            if (!$wholeDay && ($now < $scanFrom || $now >= $ends)) {
                 continue;
             }
             $spec = [
@@ -88,8 +96,11 @@ final class SessionResolver
                 'late_after' => self::addMinutes($starts, $tolerance),
                 'ends_at' => $ends,
                 'kind' => 'jadwal',
+                'class_name' => $h['class_name'],
+                'subject_name' => $h['subject_name'],
+                'note' => null,
             ];
-            if ($now >= $starts) {
+            if ($wholeDay || $now >= $starts) {
                 $current[] = $spec;
             } else {
                 $upcoming[] = $spec;
@@ -99,7 +110,7 @@ final class SessionResolver
         return $current ?: array_slice($upcoming, 0, 1);
     }
 
-    private static function dailySpecs(int $roomId, string $now, int $tolerance): array
+    private static function dailySpecs(int $roomId, string $now, int $tolerance, bool $wholeDay = false): array
     {
         $year = AcademicYear::active();
         if (!$year) {
@@ -118,7 +129,7 @@ final class SessionResolver
         $out = [];
         $semester = Semester::active();
         foreach ($windows as $kind => $w) {
-            if ($now < $w['scan_from'] || $now >= $w['ends_at']) {
+            if (!$wholeDay && ($now < $w['scan_from'] || $now >= $w['ends_at'])) {
                 continue;
             }
             foreach ($classes as $c) {
@@ -127,6 +138,7 @@ final class SessionResolver
                     'schedule_id' => null, 'semester_id' => $semester ? (int) $semester['id'] : null,
                     'class_id' => (int) $c['id'], 'room_id' => $roomId, 'subject_id' => null, 'teacher_id' => null,
                     'session_date' => $date, 'period_start' => null, 'period_end' => null, 'kind' => $kind,
+                    'class_name' => $c['name'], 'subject_name' => null, 'note' => null,
                 ];
             }
         }
@@ -134,25 +146,31 @@ final class SessionResolver
     }
 
     /**
-     * Sesi yang berlaku untuk ruangan (dibuat bila belum ada) + sesi tambahan yang sedang berjalan di ruangan itu.
+     * Sesi yang berlaku untuk ruangan pada waktu $now (dibuat bila belum ada) + sesi tambahan yang berjalan di ruangan itu.
+     * $includeClosed dipakai untuk scan offline yang baru tersinkron setelah sesinya ditutup: scan tetap dicatat ke sesi itu.
+     * Hasil di-cache singkat per ruangan per menit (lihat Cache) agar antrean satu kelas tidak mengulang query yang sama.
      * @return array<int, array> baris sesi; yang pertama adalah sesi utama untuk tampilan kiosk
      */
-    public static function resolve(int $roomId, ?string $now = null): array
+    public static function resolve(int $roomId, ?string $now = null, bool $includeClosed = false): array
     {
         $now ??= now();
-        $out = [];
-        foreach (self::specs($roomId, $now) as $spec) {
-            $s = Session::createOrGet($spec);
-            if ($s['status'] === 'open') {
-                $out[] = $s;
+        $key = 'sessions:' . $roomId . ':' . substr($now, 0, 16) . ($includeClosed ? ':all' : '');
+        return Cache::remember($key, 20, static function () use ($roomId, $now, $includeClosed): array {
+            $out = [];
+            foreach (self::specs($roomId, $now) as $spec) {
+                $s = Session::createOrGet($spec);
+                if ($s['status'] === 'open' || ($includeClosed && $s['status'] === 'closed')) {
+                    $out[] = $s;
+                }
             }
-        }
-        $extra = DB::all("SELECT id FROM sessions WHERE kind = 'tambahan' AND status = 'open' AND room_id = ? AND scan_from <= ? AND ends_at > ? ORDER BY starts_at",
-            [$roomId, $now, $now]);
-        foreach ($extra as $e) {
-            $out[] = Session::find((int) $e['id']);
-        }
-        return $out;
+            $status = $includeClosed ? "status IN ('open','closed')" : "status = 'open'";
+            $extra = DB::all("SELECT id FROM sessions WHERE kind = 'tambahan' AND $status AND room_id = ? AND scan_from <= ? AND ends_at > ? ORDER BY starts_at",
+                [$roomId, $now, $now]);
+            foreach ($extra as $e) {
+                $out[] = Session::findLight((int) $e['id']);
+            }
+            return $out;
+        });
     }
 
     public static function addMinutes(string $dt, int $minutes): string
