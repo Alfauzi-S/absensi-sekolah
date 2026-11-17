@@ -5,17 +5,18 @@ namespace App\Core;
 
 final class Router
 {
-    /** @var array<int, array{0:string,1:string,2:array{0:class-string,1:string}}> */
+    /** @var array<int, array{0:string,1:string,2:array{0:class-string,1:string},3:bool}> */
     private array $routes = [];
 
     public function get(string $pattern, array $handler): void
     {
-        $this->routes[] = ['GET', $pattern, $handler];
+        $this->routes[] = ['GET', $pattern, $handler, true];
     }
 
-    public function post(string $pattern, array $handler): void
+    /** $csrf = false hanya untuk endpoint perangkat (kiosk) yang memakai token X-Device-Token, bukan sesi/cookie. */
+    public function post(string $pattern, array $handler, bool $csrf = true): void
     {
-        $this->routes[] = ['POST', $pattern, $handler];
+        $this->routes[] = ['POST', $pattern, $handler, $csrf];
     }
 
     public static function currentPath(): string
@@ -35,7 +36,7 @@ final class Router
     public function dispatch(string $method, string $path): void
     {
         $allowed = false;
-        foreach ($this->routes as [$m, $pattern, $handler]) {
+        foreach ($this->routes as [$m, $pattern, $handler, $csrf]) {
             $regex = '#^' . preg_replace('#\{([a-z]+)\}#', '([^/]+)', $pattern) . '$#';
             if (!preg_match($regex, $path, $matches)) {
                 continue;
@@ -46,7 +47,7 @@ final class Router
             }
             array_shift($matches);
             [$class, $action] = $handler;
-            if ($method === 'POST') {
+            if ($method === 'POST' && $csrf) {
                 csrf_check();
             }
             (new $class())->$action(...$matches);

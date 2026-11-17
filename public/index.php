@@ -9,16 +9,20 @@ if (PHP_SAPI === 'cli-server' && is_file(__DIR__ . parse_url($_SERVER['REQUEST_U
 require dirname(__DIR__) . '/app/bootstrap.php';
 
 use App\Controllers\AcademicYearController;
+use App\Controllers\ApiController;
 use App\Controllers\AccountController;
 use App\Controllers\AuditController;
 use App\Controllers\AuthController;
 use App\Controllers\CardController;
 use App\Controllers\ClassController;
+use App\Controllers\DeviceController;
 use App\Controllers\DashboardController;
 use App\Controllers\ImportController;
 use App\Controllers\InstallController;
+use App\Controllers\KioskController;
 use App\Controllers\MasterController;
 use App\Controllers\ScheduleController;
+use App\Controllers\SessionController;
 use App\Controllers\SettingsController;
 use App\Controllers\StudentController;
 use App\Core\Router;
@@ -118,5 +122,32 @@ $r->get('/admin/impor', [ImportController::class, 'index']);
 $r->post('/admin/impor/siswa', [ImportController::class, 'students']);
 $r->post('/admin/impor/jadwal', [ImportController::class, 'schedules']);
 $r->get('/admin/impor/template/{kind}', [ImportController::class, 'template']);
+
+// Perangkat scanner (Super Admin)
+$r->get('/admin/perangkat', [DeviceController::class, 'index']);
+$r->post('/admin/perangkat/baru', [DeviceController::class, 'store']);
+$r->post('/admin/perangkat/{id}/ubah', [DeviceController::class, 'update']);
+$r->post('/admin/perangkat/{id}/kode', [DeviceController::class, 'pairCode']);
+$r->post('/admin/perangkat/{id}/cabut', [DeviceController::class, 'revoke']);
+$r->post('/admin/perangkat/{id}/hapus', [DeviceController::class, 'destroy']);
+
+// Sesi absensi (lihat: sesuai cakupan kelas; kelola: Super Admin, TU, guru pengampu, wali kelas)
+$r->get('/admin/sesi', [SessionController::class, 'index']);
+$r->post('/admin/sesi/baru', [SessionController::class, 'store']);
+$r->get('/admin/sesi/{id}', [SessionController::class, 'show']);
+$r->get('/admin/sesi/{id}/live', [SessionController::class, 'live']);
+$r->post('/admin/sesi/{id}/tutup', [SessionController::class, 'close']);
+$r->post('/admin/sesi/{id}/batal', [SessionController::class, 'cancel']);
+$r->post('/admin/sesi/{id}/buka', [SessionController::class, 'reopen']);
+$r->post('/admin/sesi/{id}/manual', [SessionController::class, 'manual']);
+
+// Kiosk scanner (tanpa login; token perangkat tersimpan di browser kiosk)
+$r->get('/kiosk', [KioskController::class, 'index']);
+$r->get('/kiosk/foto/{id}', [KioskController::class, 'photo']);
+
+// API perangkat: autentikasi header X-Device-Token, tanpa CSRF sesi (lihat Router::post)
+$r->post('/api/device/pair', [ApiController::class, 'pair'], false);
+$r->get('/api/device/me', [ApiController::class, 'me']);
+$r->post('/api/scan', [ApiController::class, 'scan'], false);
 
 $r->dispatch($_SERVER['REQUEST_METHOD'] ?? 'GET', Router::currentPath());

@@ -16,7 +16,7 @@ final class Fixture
 {
     public static function reset(): void
     {
-        foreach (['schedules', 'class_members', 'classes', 'students', 'semesters', 'academic_years', 'periods', 'subjects', 'rooms', 'holidays', 'users', 'settings', 'audit_logs'] as $t) {
+        foreach (['scan_logs', 'attendances', 'sessions', 'devices', 'cards', 'rate_limits', 'schedules', 'class_members', 'classes', 'students', 'semesters', 'academic_years', 'periods', 'subjects', 'rooms', 'holidays', 'users', 'settings', 'audit_logs'] as $t) {
             DB::run('DELETE FROM ' . $t);
         }
         Access::forget();

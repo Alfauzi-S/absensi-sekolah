@@ -1,4 +1,4 @@
--- Absensi Sekolah: skema MySQL/MariaDB. Versi 1 (Fase 1: data master dan peran).
+-- Absensi Sekolah: skema MySQL/MariaDB. Versi 3 (Fase 1 data master, Fase 2 kartu, Fase 3 absensi).
 SET NAMES utf8mb4;
 
 CREATE TABLE IF NOT EXISTS settings (
@@ -154,6 +154,102 @@ CREATE TABLE IF NOT EXISTS holidays (
   holiday_date DATE NOT NULL,
   name VARCHAR(120) NOT NULL,
   UNIQUE KEY uq_holiday (holiday_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ===== Fase 3: scanner kiosk dan inti absensi =====
+
+CREATE TABLE IF NOT EXISTS devices (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(80) NOT NULL,
+  room_id INT UNSIGNED NULL,
+  token_hash CHAR(64) NULL,
+  pair_code CHAR(6) NULL,
+  pair_expires_at DATETIME NULL,
+  status ENUM('pending','active','revoked') NOT NULL DEFAULT 'pending',
+  paired_at DATETIME NULL,
+  last_seen_at DATETIME NULL,
+  last_ip VARCHAR(45) NULL,
+  app_version VARCHAR(20) NULL,
+  created_by INT UNSIGNED NULL,
+  created_at DATETIME NOT NULL,
+  revoked_at DATETIME NULL,
+  UNIQUE KEY uq_devices_token (token_hash),
+  KEY idx_devices_room (room_id, status),
+  KEY idx_devices_pair (pair_code),
+  CONSTRAINT fk_devices_room FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS sessions (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  slot_key VARCHAR(64) NULL,
+  schedule_id INT UNSIGNED NULL,
+  semester_id INT UNSIGNED NULL,
+  class_id INT UNSIGNED NOT NULL,
+  room_id INT UNSIGNED NULL,
+  subject_id INT UNSIGNED NULL,
+  teacher_id INT UNSIGNED NULL,
+  session_date DATE NOT NULL,
+  period_start TINYINT UNSIGNED NULL,
+  period_end TINYINT UNSIGNED NULL,
+  scan_from DATETIME NOT NULL,
+  starts_at DATETIME NOT NULL,
+  late_after DATETIME NOT NULL,
+  ends_at DATETIME NOT NULL,
+  kind ENUM('jadwal','tambahan','harian_masuk','harian_pulang') NOT NULL DEFAULT 'jadwal',
+  status ENUM('open','closed','cancelled') NOT NULL DEFAULT 'open',
+  note VARCHAR(200) NULL,
+  opened_by INT UNSIGNED NULL,
+  closed_at DATETIME NULL,
+  created_at DATETIME NOT NULL,
+  UNIQUE KEY uq_sessions_slot (slot_key),
+  KEY idx_sessions_date (session_date, class_id),
+  KEY idx_sessions_open (status, ends_at),
+  CONSTRAINT fk_sessions_class FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE,
+  CONSTRAINT fk_sessions_schedule FOREIGN KEY (schedule_id) REFERENCES schedules(id) ON DELETE SET NULL,
+  CONSTRAINT fk_sessions_semester FOREIGN KEY (semester_id) REFERENCES semesters(id) ON DELETE SET NULL,
+  CONSTRAINT fk_sessions_room FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE SET NULL,
+  CONSTRAINT fk_sessions_subject FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE SET NULL,
+  CONSTRAINT fk_sessions_teacher FOREIGN KEY (teacher_id) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS attendances (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  session_id INT UNSIGNED NOT NULL,
+  student_id INT UNSIGNED NOT NULL,
+  class_id INT UNSIGNED NOT NULL,
+  status ENUM('H','T','I','S','D','A') NOT NULL,
+  scanned_at DATETIME NULL,
+  late_minutes SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  method ENUM('scan','manual','auto') NOT NULL DEFAULT 'scan',
+  device_id INT UNSIGNED NULL,
+  scan_id VARCHAR(64) NULL,
+  note VARCHAR(200) NULL,
+  changed_by INT UNSIGNED NULL,
+  changed_at DATETIME NULL,
+  created_at DATETIME NOT NULL,
+  UNIQUE KEY uq_att_session_student (session_id, student_id),
+  KEY idx_att_student (student_id, created_at),
+  KEY idx_att_class (class_id, created_at),
+  CONSTRAINT fk_att_session FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+  CONSTRAINT fk_att_student FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS scan_logs (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  scan_id VARCHAR(64) NULL,
+  device_id INT UNSIGNED NULL,
+  code VARCHAR(32) NULL,
+  session_id INT UNSIGNED NULL,
+  student_id INT UNSIGNED NULL,
+  result VARCHAR(20) NOT NULL,
+  response TEXT NULL,
+  scanned_at DATETIME NULL,
+  received_at DATETIME NOT NULL,
+  t_server_ms DECIMAL(8,2) NULL,
+  metrics TEXT NULL,
+  UNIQUE KEY uq_scanlog_scan (scan_id),
+  KEY idx_scanlog_time (received_at),
+  KEY idx_scanlog_device (device_id, received_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS audit_logs (
