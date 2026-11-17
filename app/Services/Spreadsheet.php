@@ -21,15 +21,15 @@ final class Spreadsheet
         $rows = match ($ext) {
             'xlsx' => self::readXlsx($path),
             'csv', 'txt', 'tsv' => self::readCsv($path),
-            default => throw new \RuntimeException(t('Format file tidak didukung. Gunakan .xlsx atau .csv.')),
+            default => throw new \RuntimeException('Format file tidak didukung. Gunakan .xlsx atau .csv.'),
         };
         // Buang baris yang seluruhnya kosong
         $rows = array_values(array_filter($rows, static fn (array $r) => implode('', $r) !== ''));
         if (!$rows) {
-            throw new \RuntimeException(t('File kosong atau tidak terbaca.'));
+            throw new \RuntimeException('File kosong atau tidak terbaca.');
         }
         if (count($rows) - 1 > self::MAX_ROWS) {
-            throw new \RuntimeException(t('Maksimal :n baris data per impor.', ['n' => self::MAX_ROWS]));
+            throw new \RuntimeException('Maksimal 5000 baris data per impor.');
         }
         $headers = array_map([self::class, 'normalizeHeader'], array_shift($rows));
         return ['headers' => $headers, 'rows' => $rows];
@@ -85,11 +85,11 @@ final class Spreadsheet
     private static function readXlsx(string $path): array
     {
         if (!class_exists(ZipArchive::class)) {
-            throw new \RuntimeException(t('Ekstensi zip PHP tidak aktif; unggah CSV sebagai gantinya.'));
+            throw new \RuntimeException('Ekstensi zip PHP tidak aktif; unggah CSV sebagai gantinya.');
         }
         $zip = new ZipArchive();
         if ($zip->open($path) !== true) {
-            throw new \RuntimeException(t('File .xlsx tidak dapat dibuka.'));
+            throw new \RuntimeException('File .xlsx tidak dapat dibuka.');
         }
         $shared = [];
         if (($xml = $zip->getFromName('xl/sharedStrings.xml')) !== false) {
@@ -102,7 +102,7 @@ final class Spreadsheet
         $xml = $zip->getFromName($sheetFile);
         $zip->close();
         if ($xml === false) {
-            throw new \RuntimeException(t('Sheet pertama tidak ditemukan di file .xlsx.'));
+            throw new \RuntimeException('Sheet pertama tidak ditemukan di file .xlsx.');
         }
         $sx = self::xml($xml);
         $rows = [];
@@ -160,7 +160,7 @@ final class Spreadsheet
         $sx = simplexml_load_string($xml, \SimpleXMLElement::class, LIBXML_NONET | LIBXML_NOENT & 0);
         libxml_use_internal_errors($prev);
         if ($sx === false) {
-            throw new \RuntimeException(t('Isi file .xlsx rusak.'));
+            throw new \RuntimeException('Isi file .xlsx rusak.');
         }
         return $sx;
     }

@@ -1,15 +1,35 @@
-# Absensi Sekolah - stack Docker.
+# Absensi Sekolah (Laravel) - stack Docker.
 #
-#   web : Nginx (image nginx:alpine terbaru) -> satu-satunya service yang mengekspos port ke host
-#   app : PHP 8.5 FPM (docker/php/Dockerfile) -> aplikasi
-#   db  : MariaDB 13.0 (GA terbaru), data tersimpan di volume bernama
-#   scheduler : image yang sama dengan app, menjalankan bin/scheduler.php (tiap 5 menit: tutup sesi,
-#               kirim WhatsApp, cadangan harian ke storage/backups). Pengganti cron.
+#   web       : Nginx, satu-satunya service yang membuka port ke host (APP_PORT, bawaan 8090)
+#   app       : PHP-FPM + kode Laravel (docker/php/Dockerfile). Saat start: migrasi, pindah data versi lama (sekali), cache.
+#   scheduler : image yang sama, menjalankan "php artisan schedule:work" (tiap 5 menit memberi Alpa setelah jam pulang)
+#   db        : MariaDB, data di volume bernama yang sama dengan versi lama (absensi_sekolah_db)
 #
-# Port default 8090 (ubah APP_PORT di .env bila sudah dipakai).
-#
-# Jalankan : docker compose up -d --build
-# Instalasi: http://<host>:8090/install
+# Pasang / perbarui : git pull && docker compose up -d --build
+# Pertama kali      : buka http://<host>:8090 lalu buat akun admin (bila belum ada data versi lama)
+
+x-app-env: &app-env
+  APP_NAME: ${APP_NAME:-Absensi Sekolah}
+  APP_ENV: production
+  APP_DEBUG: ${APP_DEBUG:-false}
+  APP_KEY: ${APP_KEY:-}
+  APP_URL: ${APP_BASE_URL:-http://localhost}
+  APP_LOCALE: id
+  APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Makassar}
+  LOG_CHANNEL: stderr
+  LOG_LEVEL: warning
+  SESSION_DRIVER: file
+  SESSION_LIFETIME: "720"
+  CACHE_STORE: file
+  QUEUE_CONNECTION: sync
+  DB_CONNECTION: mariadb
+  DB_HOST: db
+  DB_PORT: "3306"
+  DB_DATABASE: ${DB_NAME:-absensi_sekolah}
+  DB_USERNAME: ${DB_USER:-absensi}
+  DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD belum diisi. Salin .env.example menjadi .env.}
+  # Tabel versi Laravel memakai awalan abs_ agar bisa berdampingan dengan tabel versi lama.
+  DB_PREFIX: abs_
 
 services:
   web:
@@ -19,11 +39,11 @@ services:
     ports:
       - "${APP_BIND_IP:-0.0.0.0}:${APP_PORT:-8090}:80"
     volumes:
-      - ./:/var/www/html:ro
+      - ./public:/var/www/html/public:ro
       - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       - app
-    logging:
+    logging: &logging
       driver: json-file
       options:
         max-size: "10m"
@@ -33,65 +53,38 @@ services:
     build:
       context: .
       dockerfile: docker/php/Dockerfile
-    image: absensi-sekolah-app
+    image: absensi-sekolah-laravel
     container_name: absensi_app
     restart: unless-stopped
-    volumes:
-      # Kode di-bind mount supaya perubahan langsung terpakai tanpa rebuild.
-      - ./:/var/www/html
     environment:
-      # Aplikasi (dipakai docker/php/generate-config.php untuk membuat config/config.php)
-      APP_NAME: ${APP_NAME:-Absensi Sekolah}
-      APP_BASE_URL: ${APP_BASE_URL:-}
-      APP_LOCALE: ${APP_LOCALE:-id}
-      APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Makassar}
-      APP_TIMEZONE_LABEL: ${APP_TIMEZONE_LABEL:-WITA}
-      APP_DEBUG: ${APP_DEBUG:-false}
-      APP_PRETTY_URLS: ${APP_PRETTY_URLS:-true}
-      APP_CONFIG_SYNC: ${APP_CONFIG_SYNC:-true}
-      # Database (nama service "db" sebagai host; port tidak dipublikasikan ke host)
-      DB_HOST: db
-      DB_PORT: "3306"
-      DB_NAME: ${DB_NAME:-absensi_sekolah}
-      DB_USER: ${DB_USER:-absensi}
-      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD belum diisi. Salin .env.example menjadi .env.}
+      <<: *app-env
+    volumes:
+      - storage:/var/www/html/storage
     depends_on:
       db:
         condition: service_healthy
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+    logging: *logging
 
   scheduler:
-    image: absensi-sekolah-app
+    image: absensi-sekolah-laravel
     container_name: absensi_scheduler
     restart: unless-stopped
-    # Berjalan sebagai www-data agar file cadangan bisa diunduh dari halaman Kesehatan Sistem.
-    user: "www-data"
-    command: ["php", "bin/scheduler.php"]
-    volumes:
-      - ./:/var/www/html
+    user: root
+    command: ["su", "-s", "/bin/sh", "www-data", "-c", "php artisan schedule:work"]
     environment:
-      # config/config.php dibuat oleh container app; scheduler cukup memakainya.
-      APP_CONFIG_SYNC: "false"
+      <<: *app-env
+      RUN_SETUP: "false"
+    volumes:
+      - storage:/var/www/html/storage
     depends_on:
-      db:
-        condition: service_healthy
       app:
         condition: service_started
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+    logging: *logging
 
   db:
     image: mariadb:13.0
     container_name: absensi_db
     restart: unless-stopped
-    # Beri waktu MariaDB menutup dengan rapi saat container dihentikan.
     stop_grace_period: 1m
     environment:
       MARIADB_DATABASE: ${DB_NAME:-absensi_sekolah}
@@ -106,14 +99,11 @@ services:
       interval: 5s
       timeout: 5s
       retries: 30
-      # Upgrade besar (mis. 12.3 -> 13.0) dijalankan otomatis saat start pertama.
       start_period: 60s
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+    logging: *logging
 
 volumes:
   db_data:
     name: absensi_sekolah_db
+  storage:
+    name: absensi_sekolah_storage

@@ -6,86 +6,32 @@ on:
   pull_request:
 
 jobs:
-  lint:
-    name: Lint PHP
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.3'
-          extensions: mbstring, pdo_sqlite, gd, zip
-      - name: php -l semua file
-        run: |
-          set -e
-          find app bin config docker public tests -name '*.php' -print0 | xargs -0 -n1 -P4 php -l > /dev/null
-          echo "lint ok"
-
   test:
-    name: PHPUnit
+    name: Tes (PHPUnit)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.3'
-          extensions: mbstring, pdo_sqlite, gd, zip
-          tools: phpunit:10
-      - run: phpunit
-
-  smoke:
-    name: Smoke test (SQLite)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.3'
-          extensions: mbstring, pdo_sqlite, gd, zip
-      - run: bash tests/smoke.sh
-
-  restore:
-    name: Latihan pemulihan (SQLite ke MariaDB)
-    runs-on: ubuntu-latest
-    services:
-      mariadb:
-        image: mariadb:11.4
-        env:
-          MARIADB_DATABASE: absensi
-          MARIADB_USER: absensi
-          MARIADB_PASSWORD: rahasia-ci
-          MARIADB_ROOT_PASSWORD: root-ci
-        ports: ['3306:3306']
-        options: >-
-          --health-cmd="healthcheck.sh --connect --innodb_initialized"
-          --health-interval=5s --health-timeout=5s --health-retries=30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.3'
-          extensions: mbstring, pdo_sqlite, pdo_mysql, gd, zip
-      - name: Cadangan SQLite → pulihkan ke MariaDB → aplikasi jalan
-        env:
-          DRILL_TARGET: mysql
-          MYSQL_HOST: 127.0.0.1
-          MYSQL_PORT: '3306'
-          MYSQL_DB: absensi
-          MYSQL_USER: absensi
-          MYSQL_PASS: rahasia-ci
-          DAYS: '60'
-        run: bash tests/ops/restore-drill.sh
+          php-version: '8.4'
+          extensions: mbstring, pdo_sqlite, zip
+      - run: composer install --no-interaction --prefer-dist
+      - run: php artisan test
 
   docker:
-    name: Build image
+    name: Build image Docker
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/php/Dockerfile
-          push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - run: docker build -f docker/php/Dockerfile -t absensi-sekolah-laravel .
+      - name: Jalankan stack dan cek halaman login
+        run: |
+          printf 'DB_PASSWORD=ci-rahasia\nDB_ROOT_PASSWORD=ci-root\n' > .env
+          docker compose up -d
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8090/setup || true)
+            [ "$code" = "200" ] && echo "OK: /setup 200" && exit 0
+            sleep 3
+          done
+          docker compose logs app
+          exit 1
