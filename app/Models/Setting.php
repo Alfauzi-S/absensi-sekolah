@@ -27,6 +27,9 @@ final class Setting
     public const WA_TEMPLATE_ALPA = 'Assalamualaikum Bapak/Ibu, kami informasikan {nama} ({kelas}) tidak hadir tanpa keterangan (Alpa) pada {tanggal}. Mohon konfirmasi ke wali kelas. — {sekolah}';
     public const WA_TEMPLATE_LATE = 'Assalamualaikum Bapak/Ibu, kami informasikan {nama} ({kelas}) terlambat {menit} menit pada {tanggal} (scan pukul {jam}). — {sekolah}';
 
+    /** Kunci yang diisi sistem/halaman lain, tidak ikut formulir Pengaturan Sekolah. */
+    public const SYSTEM_KEYS = ['backup_time', 'backup_last_at', 'backup_last_file', 'scheduler_last_at', 'scheduler_last_report', 'pilot_classes', 'pilot_from', 'pilot_to'];
+
     /** Nilai bawaan; kunci yang tidak ada di sini tidak bisa disimpan. */
     public const DEFAULTS = [
         'school_name' => '',
@@ -49,6 +52,15 @@ final class Setting
         'wa_template_late' => self::WA_TEMPLATE_LATE,
         'portal_enabled' => '0',
         'weekend_days' => '6,7',
+        // Dicatat sistem (bukan isian formulir): jadwal cadangan dan detak penjadwal untuk halaman Kesehatan Sistem
+        'backup_time' => '01:30',
+        'backup_last_at' => '',
+        'backup_last_file' => '',
+        'scheduler_last_at' => '',
+        'scheduler_last_report' => '',
+        'pilot_classes' => '',
+        'pilot_from' => '',
+        'pilot_to' => '',
     ];
 
     private static ?array $cache = null;

@@ -147,6 +147,29 @@ read -r st hist < <(php -r '$p = new PDO("sqlite:" . $argv[1]); echo $p->query("
 [ "$st" = H ] && [ "$hist" -ge 2 ] && echo "  ok   koreksi dengan alasan → H, riwayat $hist baris" || { echo "  FAIL koreksi: status=$st riwayat=$hist"; fail=1; }
 check "/admin/sesi/$SESS" 200
 check "/admin/sesi/$SESS/live" 200
+echo "Fase 7: kesehatan sistem, cadangan, pilot, masukan:"
+check /admin/kesehatan 200
+got=$(curl -s -o "$TMP/hz.json" -w '%{http_code}' "$BASE/healthz"); grep -q '"ok":true' "$TMP/hz.json" && [ "$got" = 200 ] && echo "  ok   /healthz tanpa login → 200 ok" || { echo "  FAIL /healthz: $got $(cat "$TMP/hz.json")"; fail=1; }
+grep -q 'phone\|nis\|full_name' "$TMP/hz.json" && { echo "  FAIL /healthz berisi data pribadi"; fail=1; } || true
+tok=$(curl -s -b "$CJ" "$BASE/admin/kesehatan" | grep -o 'name="_csrf" value="[^"]*"' | head -1 | cut -d'"' -f4)
+curl -s -o /dev/null -b "$CJ" -c "$CJ" -X POST "$BASE/admin/kesehatan/cadangan" --data-urlencode "_csrf=$tok"
+BKN=$(curl -s -b "$CJ" "$BASE/admin/kesehatan" | grep -o 'absensi-[0-9]\{8\}-[0-9]\{6\}-manual\.zip' | head -1)
+[ -n "$BKN" ] && echo "  ok   cadangan manual dibuat ($BKN)" || { echo "  FAIL cadangan manual tidak muncul"; fail=1; }
+got=$(curl -s -o "$TMP/bk.zip" -w '%{http_code} %{content_type}' -b "$CJ" "$BASE/admin/kesehatan/cadangan/${BKN%.zip}")
+[[ "$got" == "200 application/zip" ]] && php -r '$z=new ZipArchive(); exit($z->open($argv[1])===true && $z->locateName("manifest.json")!==false && $z->locateName("data/attendances.jsonl")!==false ? 0 : 1);' "$TMP/bk.zip" && echo "  ok   unduh cadangan (zip berisi manifest dan data)" || { echo "  FAIL unduh cadangan: $got"; fail=1; }
+check "/admin/kesehatan/cadangan/..%2Fconfig.php" 404
+check /admin/pilot 200
+curl -s -o /dev/null -b "$CJ" -c "$CJ" -X POST "$BASE/admin/pilot" --data-urlencode "_csrf=$tok" --data-urlencode "classes[]=$OWN" --data-urlencode "classes[]=$OTHER" --data-urlencode "from=$TODAY" --data-urlencode "to=$TODAY"
+grep -q "data-pilot-class=\"$OWN\"" <(curl -s -b "$CJ" "$BASE/admin/pilot") && echo "  ok   kelas pilot tersimpan" || { echo "  FAIL kelas pilot"; fail=1; }
+check "/admin/pilot/banding/$OWN?tanggal=$TODAY" 200
+curl -s -o /dev/null -b "$CJ" -c "$CJ" -X POST "$BASE/admin/pilot/banding/$OWN" --data-urlencode "_csrf=$tok" --data-urlencode "tanggal=$TODAY" --data-urlencode "status[$STUDENT_OWN]=A"
+n=$(php -r '$p = new PDO("sqlite:" . $argv[1]); echo $p->query("SELECT COUNT(*) FROM pilot_checks WHERE student_id = " . (int) $argv[2])->fetchColumn();' "$TMP/smoke.sqlite" "$STUDENT_OWN")
+[ "$n" = 1 ] && echo "  ok   absen manual pilot tersimpan" || { echo "  FAIL absen manual pilot: $n"; fail=1; }
+grep -q 'row-diff' <(curl -s -b "$CJ" "$BASE/admin/pilot/banding/$OWN?tanggal=$TODAY") && echo "  ok   selisih sistem vs manual ditandai" || { echo "  FAIL selisih tidak ditandai"; fail=1; }
+got=$(curl -s -o "$TMP/pilot.xlsx" -w '%{http_code}' -b "$CJ" "$BASE/admin/pilot?format=xlsx"); [ "$got" = 200 ] && unzip -l "$TMP/pilot.xlsx" | grep -q sheet3 && echo "  ok   laporan pilot Excel (3 sheet)" || { echo "  FAIL laporan pilot: $got"; fail=1; }
+check /admin/masukan 200
+curl -s -o /dev/null -b "$CJ" -c "$CJ" -X POST "$BASE/admin/masukan" --data-urlencode "_csrf=$tok" --data-urlencode "topic=scan" --data-urlencode "rating=4" --data-urlencode "message=Scanner cepat, tapi bunyi kurang keras."
+grep -q 'bunyi kurang keras' <(curl -s -b "$CJ" "$BASE/admin/pilot") && echo "  ok   masukan tampil di laporan pilot" || { echo "  FAIL masukan"; fail=1; }
 echo "Fase 6: notifikasi WhatsApp, portal orang tua:"
 sqlset() { php -r '$p = new PDO("sqlite:" . $argv[1]); $p->prepare("INSERT INTO settings (skey, svalue, updated_at) VALUES (?, ?, datetime()) ON CONFLICT(skey) DO UPDATE SET svalue = excluded.svalue")->execute([$argv[2], $argv[3]]);' "$TMP/smoke.sqlite" "$1" "$2"; }
 check /admin/notifikasi 200
@@ -202,21 +225,23 @@ echo "TU / Staff:"
 login tu.sekolah tu12345678
 for p in /admin /admin/siswa /admin/siswa/baru /admin/kelas "/admin/kelas/$OTHER" /admin/jadwal /admin/impor /admin/tahun-ajaran /admin/master/jam /admin/pengaturan /admin/sesi "/admin/sesi/$SESS"; do check "$p" 200; done
 for p in /admin/izin "/admin/izin/baru?kelas=$OTHER" "/admin/rekap/kelas/$OTHER" "/admin/rekap/siswa/$STUDENT_OTHER" /admin/rekap/sekolah; do check "$p" 200; done
-for p in /admin/akun /admin/audit /admin/perangkat /admin/kecepatan /admin/notifikasi; do check "$p" 403; done
+for p in /admin/akun /admin/audit /admin/perangkat /admin/kecepatan /admin/notifikasi /admin/kesehatan; do check "$p" 403; done
+for p in /admin/pilot "/admin/pilot/banding/$OTHER" /admin/masukan; do check "$p" 200; done
 
 echo "Kepala Sekolah (hanya lihat):"
 login kepsek kepsek12345
 for p in /admin /admin/siswa /admin/kelas "/admin/kelas/$OTHER" /admin/jadwal "/admin/siswa/ekspor?format=csv" /admin/sesi "/admin/sesi/$SESS"; do check "$p" 200; done
 for p in /admin/siswa/baru /admin/kelas/baru /admin/impor /admin/akun /admin/audit /admin/master/ruangan /admin/tahun-ajaran /admin/kartu "/admin/kartu/cetak?kelas=$OWN" /admin/perangkat /admin/kecepatan /admin/izin/baru; do check "$p" 403; done
-for p in /admin/izin "/admin/rekap/kelas/$OTHER" /admin/rekap/sekolah "/admin/rekap/sekolah?format=csv"; do check "$p" 200; done
+for p in /admin/izin "/admin/rekap/kelas/$OTHER" /admin/rekap/sekolah "/admin/rekap/sekolah?format=csv" /admin/pilot; do check "$p" 200; done
+check /admin/kesehatan 403
 
 echo "Guru (wali kelas X-1):"
 login guru01 guru12345
 for p in /admin /admin/kelas "/admin/kelas/$OWN" "/admin/siswa?kelas=$OWN" "/admin/siswa/$STUDENT_OWN" "/admin/jadwal?kelas=$OWN" /admin/pengaturan /admin/sesi "/admin/sesi/$SESS" "/admin/sesi/$SESS/live"; do check "$p" 200; done
 for p in "/admin/kelas/$OTHER" "/admin/siswa?kelas=$OTHER" "/admin/siswa/$STUDENT_OTHER" "/admin/jadwal?kelas=$OTHER" \
-         /admin/siswa/baru "/admin/kelas/$OWN/ubah" /admin/impor /admin/akun /admin/audit /admin/master/jam /admin/tahun-ajaran /admin/kartu "/admin/kartu/cetak?kelas=$OWN" "/admin/siswa/$STUDENT_OTHER/foto" /admin/perangkat /admin/kecepatan /admin/notifikasi \
+         /admin/siswa/baru "/admin/kelas/$OWN/ubah" /admin/impor /admin/akun /admin/audit /admin/master/jam /admin/tahun-ajaran /admin/kartu "/admin/kartu/cetak?kelas=$OWN" "/admin/siswa/$STUDENT_OTHER/foto" /admin/perangkat /admin/kecepatan /admin/notifikasi /admin/kesehatan /admin/pilot "/admin/pilot/banding/$OTHER" \
          "/admin/rekap/kelas/$OTHER" "/admin/rekap/siswa/$STUDENT_OTHER" /admin/rekap/sekolah "/admin/izin/baru?kelas=$OTHER" "/admin/izin?kelas=$OTHER"; do check "$p" 403; done
-for p in /admin/izin "/admin/izin/baru?kelas=$OWN" /admin/rekap "/admin/rekap/kelas/$OWN" "/admin/rekap/siswa/$STUDENT_OWN"; do check "$p" 200; done
+for p in /admin/izin "/admin/izin/baru?kelas=$OWN" /admin/rekap "/admin/rekap/kelas/$OWN" "/admin/rekap/siswa/$STUDENT_OWN" "/admin/pilot/banding/$OWN" /admin/masukan; do check "$p" 200; done
 
 echo "Tanpa login:"
 rm -f "$CJ"
@@ -225,6 +250,8 @@ check /admin/siswa 30[123]
 check /masuk 200
 check /kiosk 200
 check /api/device/me 401
+check /admin/kesehatan 30[123]
+check /healthz 200
 
 # Hanya error dari kode aplikasi (menyebut file di repo). Peringatan startup PHP seperti
 # "JIT is incompatible ... in Unknown on line 0" berasal dari ekstensi runner, bukan dari aplikasi.

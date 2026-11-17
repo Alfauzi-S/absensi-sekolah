@@ -17,11 +17,13 @@ use App\Controllers\CardController;
 use App\Controllers\ClassController;
 use App\Controllers\DeviceController;
 use App\Controllers\DashboardController;
+use App\Controllers\HealthController;
 use App\Controllers\ImportController;
 use App\Controllers\InstallController;
 use App\Controllers\KioskController;
 use App\Controllers\MasterController;
 use App\Controllers\NotificationController;
+use App\Controllers\PilotController;
 use App\Controllers\PortalController;
 use App\Controllers\ScheduleController;
 use App\Controllers\SessionController;
@@ -162,6 +164,22 @@ $r->get('/admin/rekap/kelas/{id}', [RecapController::class, 'classRecap']);
 $r->get('/admin/rekap/siswa/{id}', [RecapController::class, 'student']);
 $r->get('/admin/rekap/sekolah', [RecapController::class, 'school']);
 $r->get('/admin/rekap/sekolah/semester', [RecapController::class, 'schoolSemester']);
+
+// Kesehatan sistem dan cadangan (Super Admin); /healthz untuk pemantau uptime
+$r->get('/healthz', [HealthController::class, 'healthz']);
+$r->get('/admin/kesehatan', [HealthController::class, 'index']);
+$r->post('/admin/kesehatan/cadangan', [HealthController::class, 'backup']);
+$r->get('/admin/kesehatan/cadangan/{name}', [HealthController::class, 'download']);
+
+// Pilot dan go-live: laporan (Super Admin, Kepsek, TU), banding absen manual (wali kelas/TU), masukan (semua)
+$r->get('/admin/pilot', [PilotController::class, 'index']);
+$r->post('/admin/pilot', [PilotController::class, 'save']);
+$r->get('/admin/pilot/banding/{id}', [PilotController::class, 'compare']);
+$r->post('/admin/pilot/banding/{id}', [PilotController::class, 'compareSave']);
+$r->post('/admin/pilot/banding/{id}/impor', [PilotController::class, 'compareImport']);
+$r->get('/admin/masukan', [PilotController::class, 'feedbackForm']);
+$r->post('/admin/masukan', [PilotController::class, 'feedbackStore']);
+$r->post('/admin/masukan/{id}/selesai', [PilotController::class, 'feedbackDone']);
 
 // Notifikasi WhatsApp (Super Admin)
 $r->get('/admin/notifikasi', [NotificationController::class, 'index']);

@@ -14,8 +14,8 @@ Dokumen acuan: **PRD Absensi QR Siswa** (dokumen proyek) berisi peran, alur scan
 | 3 | Scanner kiosk dan inti absensi (`POST /api/scan`) | Selesai |
 | 4 | Performa, roster lokal, antrean offline, metrik kecepatan scan | Selesai |
 | 5 | Izin/sakit, koreksi, rekap, dashboard | Selesai |
-| 6 | Notifikasi WhatsApp dan portal orang tua (opsional, diatur pengurus) | Selesai (PR ini) |
-| 7 | Pilot dan go-live | Belum |
+| 6 | Notifikasi WhatsApp dan portal orang tua (opsional, diatur pengurus) | Selesai |
+| 7 | Pilot dan go-live: cadangan harian, pemulihan, kesehatan sistem, modul pilot, runbook, UAT, buku panduan | Perangkat siap (PR ini); pilot nyata di sekolah menunggu jadwal |
 
 Catatan Fase 1: seluruh modul event/peserta dari kode asal sudah diganti dengan data sekolah. Skema baru (`database/schema.*.sql`): `settings`, `users`, `academic_years`, `semesters`, `rooms`, `classes`, `students`, `class_members`, `subjects`, `periods`, `schedules`, `holidays`, `audit_logs`.
 
@@ -30,6 +30,17 @@ Catatan Fase 1: seluruh modul event/peserta dari kode asal sudah diganti dengan 
 | Wali kelas | Guru yang tercatat di `classes.homeroom_teacher_id`; mendapat izin `class:manage` di kelas itu (dipakai Fase 5 untuk izin/koreksi) |
 
 Pengaturan sekolah yang dipilih pengurus (PRD 4.3) disimpan di tabel `settings`: mode absensi (masuk/pulang, per jam, keduanya), jam masuk/pulang dan batas terlambat, jenis scanner (USB/kamera), hari libur mingguan, notifikasi WA (mati secara bawaan).
+
+### Pilot dan go-live (Fase 7)
+
+- **Buku panduan**: [docs/Manual-Book-Absensi-Sekolah.pdf](docs/Manual-Book-Absensi-Sekolah.pdf) (13 bab, 48 tangkapan layar, format manual book lama). Sumber dan cara membuat ulang: [docs/manual/](docs/manual/README.md).
+- **Runbook**: [docs/go-live.md](docs/go-live.md) (persiapan, pilot 2 kelas, kriteria lulus, pelatihan, rollout, pemantauan minggu pertama, rencana mundur). **Skenario UAT** per peran dengan lembar tanda tangan: [docs/uat-skenario.md](docs/uat-skenario.md).
+- **Cadangan harian otomatis** (`storage/backups/absensi-*.zip`, 14 terakhir): data semua tabel dalam format netral (JSONL), foto siswa, dan lampiran izin. Dibuat oleh tugas berkala setelah pukul 01:30, atau manual dari Kesehatan Sistem / `php bin/backup.php`. Pulihkan dengan `php bin/restore.php <zip>`; bisa lintas SQLite ↔ MySQL, jumlah baris setiap tabel dicocokkan.
+- **Tugas berkala**: `bin/close-sessions.php` kini menjalankan tutup sesi, kirim WhatsApp, bersih-bersih, dan cadangan harian, lalu mencatat detak jantung. Docker punya service `scheduler` (`bin/scheduler.php`, tiap 5 menit) sehingga tidak perlu cron.
+- **Kesehatan Sistem** (`/admin/kesehatan`, Super Admin): database, migrasi, scheduler, cadangan, disk, sesi menggantung, perangkat scanner (terlihat, antrean, selisih jam), kecepatan hari ini, WhatsApp; unduh cadangan. **`/healthz`** (tanpa login, tanpa data pribadi) untuk pemantau uptime: 200 atau 503.
+- **Pilot dan Go-live** (`/admin/pilot`): pilih 2 kelas dan rentang tanggal; p95 waktu total scan USB per kelas vs 300 ms; **banding** absen manual guru vs sistem per tanggal (isi di layar atau impor CSV/Excel, selisih wajib dijelaskan); ekspor Excel (Kecepatan, Akurasi, Masukan).
+- **Kirim Masukan** (`/admin/masukan`, semua peran): topik, nilai 1–5, pesan; Super Admin menandai selesai.
+- Tes: `tests/Unit/BackupTest.php` (cadangan → pulih identik termasuk berkas, prune, path aman, jadwal cadangan, detak jantung), `tests/Unit/PilotTest.php` (kecepatan per kelas, banding, impor CSV, akurasi lulus/gagal); `tests/ops/restore-drill.sh` (server lama → cadangan → server baru, ±320 ribu baris; di CI dipulihkan ke MariaDB, < 30 menit).
 
 ### Notifikasi WhatsApp dan portal orang tua (Fase 6)
 
@@ -105,9 +116,10 @@ docker compose up -d --build  # lalu buka http://<server>:8090/install
 | `bash tests/e2e/run.sh` | Playwright: kiosk 36 siswa lewat ketikan scanner USB |
 | `php tests/perf/rekap.php` | Uji ekspor rekap semester seluruh sekolah (isi riwayat 100 hari ke database instalasi demo, lalu ukur); target < 30 detik |
 | `bash tests/perf/run.sh` | Uji performa Fase 4 (latensi 1.000 scan, jaringan lambat, offline 500 scan, batch 3 kali, beban bertahap); butuh node + Playwright |
+| `bash tests/ops/restore-drill.sh` | Uji pulih Fase 7: server lama SQLite dengan riwayat, cadangan, pulihkan ke server baru (SQLite, atau MariaDB dengan `DRILL_TARGET=mysql`), login dan buka halaman, catat waktunya |
 | `node tests/perf/baseline-old-flow.js` | Pengukuran kecepatan alur scan lama (Playwright); hasilnya di [docs/baseline-fase-0.md](docs/baseline-fase-0.md) |
 
-CI (GitHub Actions) menjalankan lint PHP, PHPUnit, smoke test, dan build image Docker pada setiap PR.
+CI (GitHub Actions) menjalankan lint PHP, PHPUnit, smoke test, uji pulih cadangan ke MariaDB, dan build image Docker pada setiap PR.
 
 ## Struktur
 
@@ -118,7 +130,7 @@ app/
   Services/      Access (izin per peran), Validator, Importer, Spreadsheet (baca CSV/XLSX), Exporter (CSV/XLSX), CardPdf, Photo, DemoSeeder
   Controllers/   Auth, Install, Dashboard, Settings, Account, Audit, AcademicYear, Class, Student, Card, Master, Schedule, Import
   Views/         layouts, partials, auth, install, errors, admin/*, guru/*
-bin/             migrate.php
+bin/             migrate.php, close-sessions.php, scheduler.php, backup.php, restore.php
 config/          config.example.php -> salin menjadi config.php
 database/        schema.{mysql,sqlite}.sql, migrations/
 docker/          PHP-FPM Dockerfile, Nginx, entrypoint, generator config dari .env
