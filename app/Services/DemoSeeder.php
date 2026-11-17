@@ -166,6 +166,76 @@ final class DemoSeeder
             }
         });
         Access::forget();
+        self::history(min(30, (int) floor((time() - strtotime((string) DB::value('SELECT start_date FROM semesters WHERE id = ?', [$semesterId]))) / 86400)), $semesterId);
         return ['accounts' => $accounts];
+    }
+
+    /**
+     * Riwayat kehadiran contoh untuk hari sekolah sebelumnya (mode masuk/pulang): sesi Masuk dan Pulang yang sudah ditutup,
+     * sebagian kecil siswa terlambat, sakit/izin (dengan surat), atau alpa. Agar rekap dan dashboard langsung berisi data.
+     */
+    public static function history(int $days, int $semesterId): int
+    {
+        if ($days <= 0) {
+            return 0;
+        }
+        $year = AcademicYear::active();
+        $classes = DB::all('SELECT id, room_id FROM classes WHERE academic_year_id = ? AND room_id IS NOT NULL', [(int) $year['id']]);
+        $members = [];
+        foreach (DB::all('SELECT m.class_id, m.student_id FROM class_members m JOIN classes c ON c.id = m.class_id WHERE c.academic_year_id = ?', [(int) $year['id']]) as $m) {
+            $members[(int) $m['class_id']][] = (int) $m['student_id'];
+        }
+        $weekend = Setting::weekendDays();
+        $tol = Setting::int('late_tolerance_minutes');
+        $hm = static fn (string $k) => substr(Setting::get($k), 0, 5) . ':00';
+        $rows = 0;
+        DB::transaction(static function () use ($days, $classes, $members, $weekend, $tol, $hm, $semesterId, &$rows): void {
+            // Sebagian siswa punya pola "sering alpa" agar daftar alpa ≥ 3 terisi
+            $truants = [];
+            foreach ($members as $list) {
+                $truants[$list[mt_rand(0, count($list) - 1)]] = true;
+            }
+            for ($i = $days; $i >= 1; $i--) {
+                $date = date('Y-m-d', strtotime(today() . ' -' . $i . ' days'));
+                if (in_array((int) date('N', strtotime($date)), $weekend, true) || \App\Models\Master::isHoliday($date)) {
+                    continue;
+                }
+                $lateAfter = $date . ' ' . $hm('late_after');
+                foreach ($classes as $c) {
+                    $cid = (int) $c['id'];
+                    $sess = [];
+                    foreach (['harian_masuk' => [$hm('checkin_start'), $hm('late_after'), date('H:i:s', strtotime($lateAfter) + $tol * 60), $hm('checkin_end')],
+                        'harian_pulang' => [$hm('checkout_start'), $hm('checkout_start'), $hm('checkout_end'), $hm('checkout_end')]] as $kind => [$from, $start, $late, $end]) {
+                        $sess[$kind] = DB::insert('sessions', ['slot_key' => 'd:' . $kind . ':' . $cid . ':' . $date, 'semester_id' => $semesterId, 'class_id' => $cid,
+                            'room_id' => (int) $c['room_id'], 'session_date' => $date, 'scan_from' => $date . ' ' . $from, 'starts_at' => $date . ' ' . $start,
+                            'late_after' => $date . ' ' . $late, 'ends_at' => $date . ' ' . $end, 'kind' => $kind, 'status' => 'closed', 'created_at' => $date . ' ' . $from]);
+                    }
+                    foreach ($members[$cid] ?? [] as $sid) {
+                        $roll = mt_rand(1, 1000) - (isset($truants[$sid]) ? 200 : 0);
+                        $leave = null;
+                        if ($roll <= 15) {
+                            $status = 'A';
+                        } elseif ($roll <= 35) {
+                            $kind = $roll <= 28 ? 'S' : 'I';
+                            $leave = DB::insert('leaves', ['student_id' => $sid, 'class_id' => $cid, 'kind' => $kind, 'date_from' => $date, 'date_to' => $date,
+                                'reason' => $kind === 'S' ? 'Sakit (contoh)' : 'Keperluan keluarga (contoh)', 'status' => 'active', 'created_at' => $date . ' 07:30:00']);
+                            $status = $kind;
+                        } else {
+                            $status = $roll <= 75 ? 'T' : 'H';
+                        }
+                        $lateMin = $status === 'T' ? $tol + mt_rand(1, 25) : 0;
+                        $scan = in_array($status, ['H', 'T'], true) ? date('Y-m-d H:i:s', strtotime($lateAfter) + ($status === 'T' ? $lateMin * 60 : -mt_rand(60, 1500))) : null;
+                        DB::insert('attendances', ['session_id' => $sess['harian_masuk'], 'student_id' => $sid, 'class_id' => $cid, 'status' => $status,
+                            'scanned_at' => $scan, 'late_minutes' => $lateMin, 'method' => $scan ? 'scan' : 'auto', 'leave_id' => $leave, 'created_at' => $scan ?? $date . ' 07:35:00']);
+                        $out = $scan ? 'H' : $status;
+                        $outScan = $scan ? $date . ' ' . date('H:i:s', strtotime($hm('checkout_start')) + mt_rand(0, 1800)) : null;
+                        DB::insert('attendances', ['session_id' => $sess['harian_pulang'], 'student_id' => $sid, 'class_id' => $cid, 'status' => $out,
+                            'scanned_at' => $outScan, 'late_minutes' => 0, 'method' => $outScan ? 'scan' : 'auto', 'leave_id' => $leave, 'created_at' => $outScan ?? $date . ' 16:05:00']);
+                        $rows += 2;
+                    }
+                }
+            }
+        });
+        return $rows;
     }
 }

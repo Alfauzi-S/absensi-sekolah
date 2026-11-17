@@ -102,7 +102,7 @@ got=$(curl -s -o "$TMP/me.json" -w '%{http_code}' "$BASE/api/device/me" -H "X-De
 # 50 scan siswa yang sama secara paralel: tepat 1 tersimpan, 49 duplikat
 seq 1 50 | xargs -P 25 -I{} curl -s -o "$TMP/scan-{}.json" -X POST "$BASE/api/scan" -H "Content-Type: application/json" -H "X-Device-Token: $DTOK" -d "{\"scan_id\":\"smoke-{}-00000000\",\"code\":\"$CARD\"}"
 n_ok=$(cat "$TMP"/scan-*.json | grep -o '"state":"\(ok\|late\)"' | wc -l || true); n_dup=$(cat "$TMP"/scan-*.json | grep -o '"state":"dup"' | wc -l || true)
-rows=$(php -r '$p = new PDO("sqlite:" . $argv[1]); echo $p->query("SELECT COUNT(*) FROM attendances WHERE student_id = " . (int) $argv[2])->fetchColumn();' "$TMP/smoke.sqlite" "$STUDENT_OWN")
+rows=$(php -r '$p = new PDO("sqlite:" . $argv[1]); echo $p->query("SELECT COUNT(*) FROM attendances WHERE student_id = " . (int) $argv[2] . " AND session_id = " . (int) $argv[3])->fetchColumn();' "$TMP/smoke.sqlite" "$STUDENT_OWN" "$SESS")
 [ "$n_ok" = 1 ] && [ "$n_dup" = 49 ] && [ "$rows" = 1 ] && echo "  ok   50 scan bersamaan: 1 tersimpan, 49 duplikat, 1 baris" || { echo "  FAIL 50 scan bersamaan: ok=$n_ok dup=$n_dup baris=$rows"; fail=1; }
 got=$(api /api/scan "$DTOK" "{\"code\":\"$(php -r '$p = new PDO("sqlite:" . $argv[1]); echo $p->query("SELECT code FROM cards WHERE student_id = " . (int) $argv[2])->fetchColumn();' "$TMP/smoke.sqlite" "$STUDENT_OTHER")\"}")
 grep -q '"state":"wrongclass"' "$TMP/api.json" && echo "  ok   siswa kelas lain → salah kelas" || { echo "  FAIL salah kelas: $(cat "$TMP/api.json")"; fail=1; }
@@ -123,6 +123,28 @@ echo $p->query("SELECT COUNT(*) FROM attendances WHERE session_id = $s AND stude
   $p->query("SELECT COUNT(*) FROM scan_metrics WHERE scan_id LIKE \"smoke-batch-%\"")->fetchColumn(), "\n";' "$TMP/smoke.sqlite" "$SESS" "$STUDENT_OWN")
 [ "$got" = 200 ] && [ "$B_ROWS" = 5 ] && [ "$B_LATE" = 0 ] && [ "$B_MET" = 5 ] && echo "  ok   batch 3 kali: 5 baris, waktu scan = waktu di perangkat, 5 metrik" || { echo "  FAIL batch: http=$got baris=$B_ROWS waktu_sinkron=$B_LATE metrik=$B_MET $(head -c 300 "$TMP/batch-out.json")"; fail=1; }
 check /admin/kecepatan 200
+echo "Fase 5: izin, koreksi, rekap, ekspor:"
+TODAY=$(php -r 'date_default_timezone_set("Asia/Makassar"); echo date("Y-m-d");')
+for p in /admin/izin "/admin/izin/baru?kelas=$OWN" /admin/rekap "/admin/rekap/kelas/$OWN" "/admin/rekap/kelas/$OWN?jenis=harian" "/admin/rekap/kelas/$OWN?jenis=semester" \
+         "/admin/rekap/siswa/$STUDENT_OWN" /admin/rekap/sekolah "/admin/rekap/sekolah?jenis=semester"; do check "$p" 200; done
+check "/admin/rekap/kelas?id=$OWN&jenis=bulanan" 30[123]
+for q in "kelas/$OWN?format=xlsx" "kelas/$OWN?jenis=semester&format=xlsx" "kelas/$OWN?jenis=harian&format=csv" "siswa/$STUDENT_OWN?format=xlsx" "sekolah?format=csv" "sekolah/semester"; do
+  ct=$(curl -s -o "$TMP/rekap.bin" -w '%{http_code} %{content_type}' -b "$CJ" "$BASE/admin/rekap/$q")
+  if [[ "$ct" == "200 application/vnd.openxmlformats"* ]] && head -c 2 "$TMP/rekap.bin" | grep -q PK; then printf '  ok   %-40s xlsx\n' "/admin/rekap/$q";
+  elif [[ "$ct" == "200 text/csv"* ]]; then printf '  ok   %-40s csv\n' "/admin/rekap/$q"; else echo "  FAIL /admin/rekap/$q: $ct"; fail=1; fi
+done
+tok=$(curl -s -b "$CJ" "$BASE/admin/izin/baru?kelas=$OWN" | grep -o 'name="_csrf" value="[^"]*"' | tail -1 | cut -d'"' -f4)
+got=$(curl -s -o /dev/null -w '%{http_code}' -b "$CJ" -c "$CJ" -X POST "$BASE/admin/izin" --data-urlencode "_csrf=$tok" --data-urlencode "class_id=$OWN" --data-urlencode "student_id=$STUDENT_OWN" \
+  --data-urlencode "kind=S" --data-urlencode "date_from=$TODAY" --data-urlencode "date_to=$TODAY" --data-urlencode "reason=Demam, surat dokter")
+st=$(php -r '$p = new PDO("sqlite:" . $argv[1]); echo $p->query("SELECT status FROM attendances WHERE session_id = " . (int) $argv[2] . " AND student_id = " . (int) $argv[3])->fetchColumn();' "$TMP/smoke.sqlite" "$SESS" "$STUDENT_OWN")
+[[ "$got" =~ ^30[123]$ ]] && [ "$st" = S ] && echo "  ok   izin sakit menimpa hasil scan (H → S)" || { echo "  FAIL izin: http=$got status=$st"; fail=1; }
+tok=$(curl -s -b "$CJ" "$BASE/admin/sesi/$SESS" | grep -o 'name="_csrf" value="[^"]*"' | head -1 | cut -d'"' -f4)
+curl -s -o /dev/null -b "$CJ" -c "$CJ" -X POST "$BASE/admin/sesi/$SESS/koreksi" --data-urlencode "_csrf=$tok" --data-urlencode "student_id=$STUDENT_OWN" --data-urlencode "status=H" --data-urlencode "reason="
+st=$(php -r '$p = new PDO("sqlite:" . $argv[1]); echo $p->query("SELECT status FROM attendances WHERE session_id = " . (int) $argv[2] . " AND student_id = " . (int) $argv[3])->fetchColumn();' "$TMP/smoke.sqlite" "$SESS" "$STUDENT_OWN")
+[ "$st" = S ] && echo "  ok   koreksi tanpa alasan ditolak" || { echo "  FAIL koreksi tanpa alasan diterima: $st"; fail=1; }
+curl -s -o /dev/null -b "$CJ" -c "$CJ" -X POST "$BASE/admin/sesi/$SESS/koreksi" --data-urlencode "_csrf=$tok" --data-urlencode "student_id=$STUDENT_OWN" --data-urlencode "status=H" --data-urlencode "reason=Sudah sembuh, hadir"
+read -r st hist < <(php -r '$p = new PDO("sqlite:" . $argv[1]); echo $p->query("SELECT status FROM attendances WHERE session_id = " . (int) $argv[2] . " AND student_id = " . (int) $argv[3])->fetchColumn(), " ", $p->query("SELECT COUNT(*) FROM status_history WHERE session_id = " . (int) $argv[2])->fetchColumn(), "\n";' "$TMP/smoke.sqlite" "$SESS" "$STUDENT_OWN")
+[ "$st" = H ] && [ "$hist" -ge 2 ] && echo "  ok   koreksi dengan alasan → H, riwayat $hist baris" || { echo "  FAIL koreksi: status=$st riwayat=$hist"; fail=1; }
 check "/admin/sesi/$SESS" 200
 check "/admin/sesi/$SESS/live" 200
 tok=$(curl -s -b "$CJ" "$BASE/admin/perangkat" | grep -o 'name="_csrf" value="[^"]*"' | head -1 | cut -d'"' -f4)
@@ -144,18 +166,22 @@ grep -q 'Tanpa NIS\|Baris' "$TMP/impor.html" && echo "  ok   baris gagal dilapor
 echo "TU / Staff:"
 login tu.sekolah tu12345678
 for p in /admin /admin/siswa /admin/siswa/baru /admin/kelas "/admin/kelas/$OTHER" /admin/jadwal /admin/impor /admin/tahun-ajaran /admin/master/jam /admin/pengaturan /admin/sesi "/admin/sesi/$SESS"; do check "$p" 200; done
+for p in /admin/izin "/admin/izin/baru?kelas=$OTHER" "/admin/rekap/kelas/$OTHER" "/admin/rekap/siswa/$STUDENT_OTHER" /admin/rekap/sekolah; do check "$p" 200; done
 for p in /admin/akun /admin/audit /admin/perangkat /admin/kecepatan; do check "$p" 403; done
 
 echo "Kepala Sekolah (hanya lihat):"
 login kepsek kepsek12345
 for p in /admin /admin/siswa /admin/kelas "/admin/kelas/$OTHER" /admin/jadwal "/admin/siswa/ekspor?format=csv" /admin/sesi "/admin/sesi/$SESS"; do check "$p" 200; done
-for p in /admin/siswa/baru /admin/kelas/baru /admin/impor /admin/akun /admin/audit /admin/master/ruangan /admin/tahun-ajaran /admin/kartu "/admin/kartu/cetak?kelas=$OWN" /admin/perangkat /admin/kecepatan; do check "$p" 403; done
+for p in /admin/siswa/baru /admin/kelas/baru /admin/impor /admin/akun /admin/audit /admin/master/ruangan /admin/tahun-ajaran /admin/kartu "/admin/kartu/cetak?kelas=$OWN" /admin/perangkat /admin/kecepatan /admin/izin/baru; do check "$p" 403; done
+for p in /admin/izin "/admin/rekap/kelas/$OTHER" /admin/rekap/sekolah "/admin/rekap/sekolah?format=csv"; do check "$p" 200; done
 
 echo "Guru (wali kelas X-1):"
 login guru01 guru12345
 for p in /admin /admin/kelas "/admin/kelas/$OWN" "/admin/siswa?kelas=$OWN" "/admin/siswa/$STUDENT_OWN" "/admin/jadwal?kelas=$OWN" /admin/pengaturan /admin/sesi "/admin/sesi/$SESS" "/admin/sesi/$SESS/live"; do check "$p" 200; done
 for p in "/admin/kelas/$OTHER" "/admin/siswa?kelas=$OTHER" "/admin/siswa/$STUDENT_OTHER" "/admin/jadwal?kelas=$OTHER" \
-         /admin/siswa/baru "/admin/kelas/$OWN/ubah" /admin/impor /admin/akun /admin/audit /admin/master/jam /admin/tahun-ajaran /admin/kartu "/admin/kartu/cetak?kelas=$OWN" "/admin/siswa/$STUDENT_OTHER/foto" /admin/perangkat /admin/kecepatan; do check "$p" 403; done
+         /admin/siswa/baru "/admin/kelas/$OWN/ubah" /admin/impor /admin/akun /admin/audit /admin/master/jam /admin/tahun-ajaran /admin/kartu "/admin/kartu/cetak?kelas=$OWN" "/admin/siswa/$STUDENT_OTHER/foto" /admin/perangkat /admin/kecepatan \
+         "/admin/rekap/kelas/$OTHER" "/admin/rekap/siswa/$STUDENT_OTHER" /admin/rekap/sekolah "/admin/izin/baru?kelas=$OTHER" "/admin/izin?kelas=$OTHER"; do check "$p" 403; done
+for p in /admin/izin "/admin/izin/baru?kelas=$OWN" /admin/rekap "/admin/rekap/kelas/$OWN" "/admin/rekap/siswa/$STUDENT_OWN"; do check "$p" 200; done
 
 echo "Tanpa login:"
 rm -f "$CJ"

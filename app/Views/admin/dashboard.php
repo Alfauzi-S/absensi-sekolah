@@ -11,6 +11,7 @@
     <div><h2><?= e(\App\Models\Setting::get('school_name') ?: t('Dashboard')) ?></h2><p><?= e(t('Tahun ajaran :y', ['y' => $activeYear['name']])) ?><?= $activeSemester ? ' · ' . e(t('Semester :s', ['s' => $activeSemester['name']])) : ' · ' . e(t('Belum ada semester aktif')) ?></p></div>
     <?php if (can('master')): ?><div class="row"><a class="btn btn-outline" href="<?= e(url('admin/impor')) ?>"><?= icon('upload', 18) ?><?= e(t('Impor data')) ?></a><a class="btn btn-primary" href="<?= e(url('admin/siswa/baru')) ?>"><?= icon('userplus', 18) ?><?= e(t('Siswa baru')) ?></a></div><?php endif; ?>
   </div>
+  <?php if (!empty($att)): ?><?php include __DIR__ . '/../partials/attendance_overview.php'; ?><p class="sec-t" style="margin:22px 0 12px"><?= e(t('Data sekolah')) ?></p><?php endif; ?>
   <div class="g-stats">
     <a class="stat" href="<?= e(url('admin/siswa')) ?>"><span class="k"><span class="dot t-ok"><?= icon('users', 14) ?></span><?= e(t('Siswa aktif')) ?></span><span class="v"><?= (int) $counts['students']['active'] ?></span><span class="s"><?= e(t(':n total terdaftar', ['n' => (int) $counts['students']['total']])) ?></span></a>
     <a class="stat" href="<?= e(url('admin/kelas')) ?>"><span class="k"><span class="dot t-navy"><?= icon('building', 14) ?></span><?= e(t('Kelas')) ?></span><span class="v"><?= (int) $counts['classes'] ?></span><span class="s"><?= e(t(':n tanpa wali kelas', ['n' => (int) $counts['classesNoHomeroom']])) ?></span></a>

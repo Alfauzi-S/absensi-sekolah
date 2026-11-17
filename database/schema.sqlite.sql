@@ -1,4 +1,4 @@
--- Absensi Sekolah: skema SQLite (pengujian / instalasi kecil). Versi 4 (Fase 1 data master, Fase 2 kartu, Fase 3 absensi, Fase 4 metrik).
+-- Absensi Sekolah: skema SQLite (pengujian / instalasi kecil). Versi 5 (Fase 1 data master, Fase 2 kartu, Fase 3 absensi, Fase 4 metrik, Fase 5 izin dan riwayat).
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS settings (
@@ -186,6 +186,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_date ON sessions (session_date, class_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_open ON sessions (status, ends_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_class_date ON sessions (class_id, session_date);
 
 -- Kehadiran: satu baris per (sesi, siswa). Status: H hadir, T terlambat, I izin, S sakit, D dispensasi, A alpa.
 CREATE TABLE IF NOT EXISTS attendances (
@@ -202,6 +203,8 @@ CREATE TABLE IF NOT EXISTS attendances (
   note TEXT NULL,
   changed_by INTEGER NULL,
   changed_at TEXT NULL,
+  leave_id INTEGER NULL,
+  corrected INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   UNIQUE (session_id, student_id)
 );
@@ -274,3 +277,40 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
   name TEXT PRIMARY KEY,
   applied_at TEXT NOT NULL
 );
+
+-- Izin, sakit, dispensasi per rentang tanggal (Fase 5)
+CREATE TABLE IF NOT EXISTS leaves (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  class_id INTEGER NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('I','S','D')),
+  date_from TEXT NOT NULL,
+  date_to TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  attachment TEXT NULL,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','cancelled')),
+  created_by INTEGER NULL,
+  created_at TEXT NOT NULL,
+  cancelled_by INTEGER NULL,
+  cancelled_at TEXT NULL,
+  cancel_reason TEXT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_leaves_student ON leaves (student_id, date_from, date_to);
+CREATE INDEX IF NOT EXISTS idx_leaves_class ON leaves (class_id, date_from);
+
+-- Riwayat perubahan status kehadiran: siapa, kapan, dari apa ke apa, alasan (Fase 5)
+CREATE TABLE IF NOT EXISTS status_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  attendance_id INTEGER NULL,
+  session_id INTEGER NOT NULL,
+  student_id INTEGER NOT NULL,
+  old_status TEXT NULL,
+  new_status TEXT NULL,
+  source TEXT NOT NULL,
+  reason TEXT NULL,
+  leave_id INTEGER NULL,
+  actor_id INTEGER NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_history_session ON status_history (session_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_history_student ON status_history (student_id, created_at);

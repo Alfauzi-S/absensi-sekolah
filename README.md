@@ -12,8 +12,8 @@ Dokumen acuan: **PRD Absensi QR Siswa** (dokumen proyek) berisi peran, alur scan
 | 1 | Data master sekolah (tahun ajaran, kelas, siswa, guru, jadwal), 4 peran + wali kelas, impor Excel/CSV | Selesai |
 | 2 | Kartu QR siswa (kode acak 12 karakter berversi), foto siswa, cetak PDF CR80 massal | Selesai |
 | 3 | Scanner kiosk dan inti absensi (`POST /api/scan`) | Selesai |
-| 4 | Performa, roster lokal, antrean offline, metrik kecepatan scan | Selesai (PR ini) |
-| 5 | Izin/sakit, koreksi, rekap, dashboard | Belum |
+| 4 | Performa, roster lokal, antrean offline, metrik kecepatan scan | Selesai |
+| 5 | Izin/sakit, koreksi, rekap, dashboard | Selesai (PR ini) |
 | 6 | Notifikasi WhatsApp dan portal orang tua (opsional, diatur pengurus) | Belum |
 | 7 | Pilot dan go-live | Belum |
 
@@ -30,6 +30,19 @@ Catatan Fase 1: seluruh modul event/peserta dari kode asal sudah diganti dengan 
 | Wali kelas | Guru yang tercatat di `classes.homeroom_teacher_id`; mendapat izin `class:manage` di kelas itu (dipakai Fase 5 untuk izin/koreksi) |
 
 Pengaturan sekolah yang dipilih pengurus (PRD 4.3) disimpan di tabel `settings`: mode absensi (masuk/pulang, per jam, keduanya), jam masuk/pulang dan batas terlambat, jenis scanner (USB/kamera), hari libur mingguan, notifikasi WA (mati secara bawaan).
+
+### Izin, koreksi, rekap, dashboard (Fase 5)
+
+- **Izin/Sakit/Dispensasi** (`/admin/izin`): dicatat TU atau wali kelas untuk rentang tanggal (maks. 60 hari), keterangan wajib, lampiran foto/PDF surat opsional (≤ 3 MB, disimpan di `storage/leaves/`, hanya bisa dibuka pengguna yang berhak). Langsung berlaku, termasuk untuk sesi yang sudah lewat. Bisa dibatalkan dengan alasan; status kembali ke hasil scan atau Alpa. Kepala Sekolah hanya melihat.
+- **Prioritas status** (PRD bagian 9): koreksi manual guru/wali kelas > Izin/Sakit/Dispensasi > scan (Hadir/Terlambat) > Alpa otomatis. Jam scan tetap disimpan walau statusnya kalah prioritas. Penutupan sesi memberi siswa berizin status izinnya, bukan Alpa.
+- **Koreksi status** di halaman sesi (guru pengampu, wali kelas, TU, Super Admin): pilih status baru + alasan wajib; bisa dihapus lagi (kembali ke surat/scan). Setiap perubahan (scan tersinkron, izin, batal izin, koreksi) tercatat di tabel `status_history` dan tampil di halaman sesi dan riwayat siswa.
+- **Rekap** (`/admin/rekap`, format PRD 4.4): bulanan per kelas (kode H/T/S/I/A/D per tanggal, libur diarsir, jumlah per kode, % hadir, hadir per hari), harian per kelas (satu kolom per jam/Masuk/Pulang), semester per kelas (per bulan + total), riwayat per siswa (jam scan, menit terlambat, jam alpa, keterangan surat/koreksi), ringkasan sekolah per kelas. Unduh **Excel** (kop sekolah, A4 landscape muat satu halaman lebar, tanda tangan wali kelas dan kepala sekolah) atau **CSV**; teks yang diawali `= + - @` diberi tanda kutip (aman dari formula injection). Rekap semester **seluruh sekolah** dalam satu file (satu sheet per kelas + ringkasan).
+- **Aturan status harian**: sesi yang dihitung = jam pelajaran dan Masuk (Pulang, sesi tambahan, dan jam kosong tidak). Hadir bila sesi pertama yang diikuti Hadir; Terlambat bila scan pertamanya terlambat atau baru datang di jam berikutnya; tidak hadir sama sekali → Izin/Sakit/Dispensasi bila ada, selain itu Alpa. Hari efektif = tanggal dengan sesi terhitung yang sudah ditutup dan bukan hari libur. % hadir = (H + T) ÷ hari efektif.
+- **Dashboard**: kepala sekolah/TU/Super Admin melihat hadir/izin/alpa hari ini, % hadir bulan ini, kelas dengan kehadiran terendah, dan siswa alpa ≥ 3 hari semester ini; wali kelas melihat yang sama untuk kelasnya.
+- **Sesi untuk kelas yang scannernya mati**: cron `bin/close-sessions.php` kini juga membuat sesi hari ini untuk ruangan yang punya perangkat aktif, sehingga Alpa tetap tercatat walau tablet tidak menyala seharian.
+- **Data demo** kini berisi riwayat kehadiran ±30 hari terakhir (mode masuk/pulang, sebagian terlambat, sakit/izin bersurat, alpa) agar rekap dan dashboard langsung berisi.
+- Hak akses: rekap kelas untuk Super Admin, Kepsek, TU, dan wali kelas kelasnya saja (guru mapel dan wali kelas lain → 403); ringkasan sekolah untuk Super Admin, Kepsek, TU.
+- Tes: `tests/Unit/LeaveRecapTest.php` (prioritas status dan riwayat, koreksi tanpa alasan ditolak, tutup sesi dengan izin, aturan status harian, **rekap 1 bulan 3 kelas dibandingkan hitungan manual: cocok 100%**, daftar alpa ≥ 3 versi SQL = versi rekap, formula injection, hak akses). `php tests/perf/rekap.php`: rekap semester seluruh sekolah (30 kelas, 153.360 baris kehadiran) **0,3 detik** (target < 30 detik). `tests/smoke.sh`: izin menimpa scan, koreksi tanpa alasan ditolak, unduhan Excel/CSV, akses per peran.
 
 ### Performa dan offline (Fase 4)
 
@@ -80,6 +93,7 @@ docker compose up -d --build  # lalu buka http://<server>:8090/install
 | `phpunit` | Tes unit (SQLite sementara): matriks akses per peran, validator, impor dengan baris rusak, bentrok jadwal, pengaturan, kartu QR (100.000 kode tanpa tabrakan, ganti kartu, PDF 36 kartu < 5 detik) |
 | `bash tests/smoke.sh` | Instal otomatis dengan data demo (30 kelas, 1.080 siswa, 60 guru), buka semua halaman sebagai Super Admin/TU/Kepsek/Guru, impor CSV lewat form, terbitkan dan cetak kartu QR, pastikan tidak ada 500, halaman lama 404, dan kelas lain ditolak 403 |
 | `bash tests/e2e/run.sh` | Playwright: kiosk 36 siswa lewat ketikan scanner USB |
+| `php tests/perf/rekap.php` | Uji ekspor rekap semester seluruh sekolah (isi riwayat 100 hari ke database instalasi demo, lalu ukur); target < 30 detik |
 | `bash tests/perf/run.sh` | Uji performa Fase 4 (latensi 1.000 scan, jaringan lambat, offline 500 scan, batch 3 kali, beban bertahap); butuh node + Playwright |
 | `node tests/perf/baseline-old-flow.js` | Pengukuran kecepatan alur scan lama (Playwright); hasilnya di [docs/baseline-fase-0.md](docs/baseline-fase-0.md) |
 

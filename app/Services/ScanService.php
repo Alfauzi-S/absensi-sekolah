@@ -6,6 +6,8 @@ namespace App\Services;
 use App\Core\Database as DB;
 use App\Models\AcademicYear;
 use App\Models\Attendance;
+use App\Models\Leave;
+use App\Models\StatusHistory;
 use App\Models\Card;
 use App\Models\ScanLog;
 use App\Models\ScanMetric;
@@ -175,25 +177,38 @@ final class ScanService
      */
     public static function record(array $session, int $studentId, int $classId, string $scannedAt, ?int $deviceId, ?string $scanId, string $method = 'scan', ?int $userId = null): array
     {
-        [$status, $late] = self::judge($session, $scannedAt);
+        [$scanStatus, $late] = self::judge($session, $scannedAt);
+        // Izin/sakit/dispensasi mengalahkan scan (PRD bagian 9); jam scan tetap disimpan.
+        $leave = Leave::activeFor($studentId, (string) $session['session_date']);
+        $status = $leave['kind'] ?? $scanStatus;
+        $state = $scanStatus === 'T' ? 'late' : 'ok';
         $id = Attendance::tryInsert([
             'session_id' => (int) $session['id'], 'student_id' => $studentId, 'class_id' => $classId, 'status' => $status,
             'scanned_at' => $scannedAt, 'late_minutes' => $late, 'method' => $method, 'device_id' => $deviceId, 'scan_id' => $scanId, 'changed_by' => $userId,
+            'leave_id' => $leave['id'] ?? null,
         ]);
-        if ($id === null) {
-            $prev = Attendance::find((int) $session['id'], $studentId);
-            if ($prev && $prev['status'] === 'A' && $prev['method'] === 'auto') {
-                $n = DB::update('attendances', ['status' => $status, 'scanned_at' => $scannedAt, 'late_minutes' => $late, 'method' => $method,
-                    'device_id' => $deviceId, 'scan_id' => $scanId, 'changed_by' => $userId, 'changed_at' => now(), 'note' => 'Scan tersinkron setelah sesi ditutup'],
-                    "id = ? AND status = 'A' AND method = 'auto'", [(int) $prev['id']]);
-                if ($n === 1) {
-                    return ['state' => $status === 'T' ? 'late' : 'ok', 'status' => $status, 'late_minutes' => $late, 'scanned_at' => $scannedAt];
-                }
-                $prev = Attendance::find((int) $session['id'], $studentId);
-            }
-            return ['state' => 'dup', 'status' => (string) $prev['status'], 'late_minutes' => (int) $prev['late_minutes'], 'scanned_at' => (string) ($prev['scanned_at'] ?: $prev['created_at'])];
+        if ($id !== null) {
+            return ['state' => $state, 'status' => $status, 'late_minutes' => $late, 'scanned_at' => $scannedAt];
         }
-        return ['state' => $status === 'T' ? 'late' : 'ok', 'status' => $status, 'late_minutes' => $late, 'scanned_at' => $scannedAt];
+        $prev = Attendance::find((int) $session['id'], $studentId);
+        if ($prev && empty($prev['scanned_at'])) {
+            // Baris tanpa scan: Alpa otomatis (scan tersinkron setelah sesi ditutup), izin, atau koreksi. Simpan fakta scan;
+            // status ikut prioritas: koreksi tetap, izin tetap, Alpa otomatis menjadi hasil scan.
+            $keep = !empty($prev['corrected']) || (!empty($prev['leave_id']) && $prev['status'] !== 'A');
+            $new = $keep ? (string) $prev['status'] : $status;
+            $n = DB::update('attendances', ['status' => $new, 'scanned_at' => $scannedAt, 'late_minutes' => $late, 'method' => $keep ? $prev['method'] : $method,
+                'device_id' => $deviceId, 'scan_id' => $scanId, 'leave_id' => $keep ? $prev['leave_id'] : ($leave['id'] ?? null),
+                'changed_at' => now(), 'note' => $prev['note'] ?? ($prev['status'] === 'A' ? 'Scan tersinkron setelah sesi ditutup' : null)],
+                'id = ? AND scanned_at IS NULL', [(int) $prev['id']]);
+            if ($n === 1) {
+                if ($new !== $prev['status']) {
+                    StatusHistory::add((int) $prev['id'], (int) $session['id'], $studentId, $prev['status'], $new, 'scan', null, $userId);
+                }
+                return ['state' => $state, 'status' => $new, 'late_minutes' => $late, 'scanned_at' => $scannedAt];
+            }
+            $prev = Attendance::find((int) $session['id'], $studentId);
+        }
+        return ['state' => 'dup', 'status' => (string) $prev['status'], 'late_minutes' => (int) $prev['late_minutes'], 'scanned_at' => (string) ($prev['scanned_at'] ?: $prev['created_at'])];
     }
 
     /**

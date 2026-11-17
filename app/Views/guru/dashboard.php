@@ -4,6 +4,7 @@
 <?php if (!$activeYear || !$activeSemester): ?>
   <div class="banner warn"><?= icon('alert') ?><div class="grow"><b><?= e(t('Tahun ajaran/semester belum aktif')) ?></b><?= e(t('Hubungi TU agar jadwal dan kelas bisa ditampilkan.')) ?></div></div>
 <?php endif; ?>
+<?php foreach ($atts as $att): ?><?php if ($att['today']): ?><?php include __DIR__ . '/../partials/attendance_overview.php'; ?><?php endif; ?><?php endforeach; ?>
 <div class="g-stats">
   <div class="stat"><span class="k"><span class="dot t-ok"><?= icon('calendar', 14) ?></span><?= e(t('Jam mengajar hari ini')) ?></span><span class="v"><?= count($todaySchedules) ?></span><span class="s"><?= e(t(':n jadwal per minggu', ['n' => (int) $weekCount])) ?></span></div>
   <div class="stat"><span class="k"><span class="dot t-navy"><?= icon('building', 14) ?></span><?= e(t('Kelas yang diajar')) ?></span><span class="v"><?= count($classes) ?></span><span class="s"><?= e(t('Semester :s', ['s' => $activeSemester['name'] ?? '—'])) ?></span></div>

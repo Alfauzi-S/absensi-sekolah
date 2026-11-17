@@ -21,10 +21,11 @@ use App\Models\Semester;
  * - reports      : rekap seluruh sekolah → Super Admin, Kepsek, TU
  * - class:view   : melihat data satu kelas → Super Admin, Kepsek, TU; Guru hanya kelas yang diajar atau diwali
  * - class:manage : koreksi status dan izin satu kelas → Super Admin, TU, Wali Kelas kelas itu
+ * - class:recap  : rekap kehadiran satu kelas → Super Admin, Kepsek, TU, Wali Kelas kelas itu (guru mapel tidak)
  */
 final class Access
 {
-    public const PERMS = ['master', 'accounts', 'settings', 'audit', 'reports', 'class:view', 'class:manage'];
+    public const PERMS = ['master', 'accounts', 'settings', 'audit', 'reports', 'class:view', 'class:manage', 'class:recap'];
 
     /** @var array<int, array{teach:int[], homeroom:int[]}> */
     private static array $cache = [];
@@ -46,6 +47,8 @@ final class Access
             'accounts', 'settings', 'audit' => false,
             'class:view' => in_array($role, [Auth::KEPSEK, Auth::TU], true)
                 || ($role === Auth::GURU && self::inList(self::classIds($user), $classId)),
+            'class:recap' => in_array($role, [Auth::KEPSEK, Auth::TU], true)
+                || ($role === Auth::GURU && self::inList(self::homeroomClassIds($user), $classId)),
             'class:manage' => $role === Auth::TU
                 || ($role === Auth::GURU && self::inList(self::homeroomClassIds($user), $classId)),
             default => false,

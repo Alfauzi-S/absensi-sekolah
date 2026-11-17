@@ -1,4 +1,4 @@
--- Absensi Sekolah: skema MySQL/MariaDB. Versi 4 (Fase 1 data master, Fase 2 kartu, Fase 3 absensi, Fase 4 metrik).
+-- Absensi Sekolah: skema MySQL/MariaDB. Versi 5 (Fase 1 data master, Fase 2 kartu, Fase 3 absensi, Fase 4 metrik, Fase 5 izin dan riwayat).
 SET NAMES utf8mb4;
 
 CREATE TABLE IF NOT EXISTS settings (
@@ -206,6 +206,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   UNIQUE KEY uq_sessions_slot (slot_key),
   KEY idx_sessions_date (session_date, class_id),
   KEY idx_sessions_open (status, ends_at),
+  KEY idx_sessions_class_date (class_id, session_date),
   CONSTRAINT fk_sessions_class FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE,
   CONSTRAINT fk_sessions_schedule FOREIGN KEY (schedule_id) REFERENCES schedules(id) ON DELETE SET NULL,
   CONSTRAINT fk_sessions_semester FOREIGN KEY (semester_id) REFERENCES semesters(id) ON DELETE SET NULL,
@@ -228,6 +229,8 @@ CREATE TABLE IF NOT EXISTS attendances (
   note VARCHAR(200) NULL,
   changed_by INT UNSIGNED NULL,
   changed_at DATETIME NULL,
+  leave_id INT UNSIGNED NULL,
+  corrected TINYINT(1) NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL,
   UNIQUE KEY uq_att_session_student (session_id, student_id),
   KEY idx_att_student (student_id, created_at),
@@ -301,4 +304,42 @@ CREATE TABLE IF NOT EXISTS rate_limits (
 CREATE TABLE IF NOT EXISTS schema_migrations (
   name VARCHAR(120) NOT NULL PRIMARY KEY,
   applied_at DATETIME NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Izin, sakit, dispensasi per rentang tanggal (Fase 5)
+CREATE TABLE IF NOT EXISTS leaves (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  student_id INT UNSIGNED NOT NULL,
+  class_id INT UNSIGNED NULL,
+  kind ENUM('I','S','D') NOT NULL,
+  date_from DATE NOT NULL,
+  date_to DATE NOT NULL,
+  reason VARCHAR(255) NOT NULL,
+  attachment VARCHAR(255) NULL,
+  status ENUM('active','cancelled') NOT NULL DEFAULT 'active',
+  created_by INT UNSIGNED NULL,
+  created_at DATETIME NOT NULL,
+  cancelled_by INT UNSIGNED NULL,
+  cancelled_at DATETIME NULL,
+  cancel_reason VARCHAR(255) NULL,
+  KEY idx_leaves_student (student_id, date_from, date_to),
+  KEY idx_leaves_class (class_id, date_from),
+  CONSTRAINT fk_leaves_student FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Riwayat perubahan status kehadiran: siapa, kapan, dari apa ke apa, alasan (Fase 5)
+CREATE TABLE IF NOT EXISTS status_history (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  attendance_id INT UNSIGNED NULL,
+  session_id INT UNSIGNED NOT NULL,
+  student_id INT UNSIGNED NOT NULL,
+  old_status CHAR(1) NULL,
+  new_status CHAR(1) NULL,
+  source VARCHAR(20) NOT NULL,
+  reason VARCHAR(255) NULL,
+  leave_id INT UNSIGNED NULL,
+  actor_id INT UNSIGNED NULL,
+  created_at DATETIME NOT NULL,
+  KEY idx_history_session (session_id, created_at),
+  KEY idx_history_student (student_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

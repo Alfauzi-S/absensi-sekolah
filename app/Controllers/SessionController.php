@@ -13,6 +13,7 @@ use App\Models\Semester;
 use App\Models\Session;
 use App\Models\Student;
 use App\Services\Access;
+use App\Services\AttendanceRules;
 use App\Services\ScanService;
 use App\Services\SessionCloser;
 use App\Services\SessionResolver;
@@ -67,7 +68,7 @@ final class SessionController extends Controller
         $this->render('admin/sessions/show', [
             'title' => SessionResolver::label($s), 'active' => 'sessions', 'back' => 'admin/sesi?tanggal=' . $s['session_date'],
             's' => $s, 'roster' => Session::roster($s), 'counts' => Attendance::countBySession((int) $s['id']),
-            'canManage' => $this->canManage($user, $s),
+            'canManage' => $this->canManage($user, $s), 'history' => \App\Models\StatusHistory::forSession((int) $s['id']),
         ]);
     }
 
@@ -168,6 +169,32 @@ final class SessionController extends Controller
         $r = ScanService::record($s, (int) $student['id'], (int) $s['class_id'], now(), null, null, 'manual', (int) $user['id']);
         AuditLog::add($user, 'attendance.manual', (int) $s['class_id'], 'student', $student['id'], ['session' => $s['id'], 'state' => $r['state']]);
         flash($r['state'] === 'dup' ? 'warn' : 'ok', $r['state'] === 'dup' ? 'Sudah tercatat sebelumnya' : 'Kehadiran dicatat manual', $student['full_name'] . ' · ' . status_label($r['status']));
+        redirect('admin/sesi/' . $s['id']);
+    }
+
+    /** Koreksi status satu siswa di sesi ini (guru pengampu, wali kelas, TU, Super Admin). Alasan wajib; tercatat di riwayat. */
+    public function correct(string $id): void
+    {
+        [$user, $s] = $this->manage($id);
+        $student = Student::find((int) input('student_id'));
+        $member = $student ? \App\Core\Database::value('SELECT id FROM class_members WHERE class_id = ? AND student_id = ?', [(int) $s['class_id'], (int) $student['id']]) : null;
+        if (!$student || !$member || $s['status'] === 'cancelled') {
+            flash('bad', 'Koreksi tidak bisa disimpan', t('Siswa bukan anggota kelas ini atau sesi dibatalkan.'));
+            redirect('admin/sesi/' . $s['id']);
+        }
+        try {
+            if (input('status') === 'reset') {
+                $new = AttendanceRules::uncorrect($s, (int) $student['id'], input('reason') ?: t('Koreksi dihapus'), (int) $user['id']);
+                AuditLog::add($user, 'attendance.uncorrect', (int) $s['class_id'], 'student', $student['id'], ['session' => $s['id'], 'new' => $new]);
+                flash('ok', 'Koreksi dihapus', $student['full_name'] . ' · ' . ($new ? status_label($new) : t('Belum')));
+            } else {
+                $r = AttendanceRules::correct($s, (int) $student['id'], input('status'), input('reason'), (int) $user['id']);
+                AuditLog::add($user, 'attendance.correct', (int) $s['class_id'], 'student', $student['id'], ['session' => $s['id'], 'old' => $r['old'], 'new' => $r['new'], 'reason' => input('reason')]);
+                flash('ok', 'Status dikoreksi', $student['full_name'] . ' · ' . ($r['old'] ? status_label($r['old']) : t('Belum')) . ' → ' . status_label($r['new']));
+            }
+        } catch (\InvalidArgumentException $e) {
+            flash('bad', 'Koreksi tidak bisa disimpan', $e->getMessage());
+        }
         redirect('admin/sesi/' . $s['id']);
     }
 }

@@ -239,7 +239,17 @@ function day_name(int $iso, bool $short = false): string
 const MONTHS_ID = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 const DAYS_ID = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 const MONTHS_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MONTHS_FULL_ID = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+const MONTHS_FULL_EN = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const DAYS_EN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/** "2026-11" → "November 2026" (atau "Nov" bila $short). */
+function month_id(string $ym, bool $short = false): string
+{
+    $m = (int) substr($ym, 5, 2);
+    $name = (lang() === 'en' ? MONTHS_FULL_EN : MONTHS_FULL_ID)[max(1, min(12, $m)) - 1];
+    return $short ? mb_substr($name, 0, 3) : $name . ' ' . substr($ym, 0, 4);
+}
 
 function date_id(?string $date, bool $withDay = false): string
 {

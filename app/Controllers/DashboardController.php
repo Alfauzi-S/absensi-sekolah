@@ -13,6 +13,7 @@ use App\Models\SchoolClass;
 use App\Models\Semester;
 use App\Models\Student;
 use App\Services\Access;
+use App\Services\Recap;
 
 final class DashboardController extends Controller
 {
@@ -32,6 +33,8 @@ final class DashboardController extends Controller
                 'classes' => $year ? SchoolClass::forYear((int) $year['id'], $classIds) : [],
                 'isHoliday' => Master::isHoliday(today()),
             ];
+            $homeIds = Access::homeroomClassIds($user);
+            $data['atts'] = array_map(fn (int $cid) => $this->attendance([$cid], $semester), $homeIds);
             $this->render('guru/dashboard', $data);
             return;
         }
@@ -52,7 +55,22 @@ final class DashboardController extends Controller
             'classes' => $year ? SchoolClass::forYear((int) $year['id']) : [],
             'pendingMigrations' => $user['role'] === Auth::SUPER ? Migrator::pending() : [],
             'recent' => $user['role'] === Auth::SUPER ? AuditLog::list('', '', 8) : [],
+            'att' => $year ? $this->attendance(null, $semester) : null,
         ]);
+    }
+
+    /** Data ringkasan kehadiran untuk partial attendance_overview. @param int[]|null $classIds null = seluruh sekolah */
+    private function attendance(?array $classIds, ?array $semester): array
+    {
+        $year = \App\Models\AcademicYear::active();
+        $classes = $year ? SchoolClass::forYear((int) $year['id'], $classIds) : [];
+        $from = $semester ? max($semester['start_date'], date('Y-m-01')) : date('Y-m-01');
+        return [
+            'today' => Recap::today($classIds, today()),
+            'month' => Recap::school($classes, date('Y-m-01'), today()),
+            'frequent' => Recap::frequentAbsent($classIds, $semester['start_date'] ?? $from, today()),
+            'monthLabel' => month_id(substr(today(), 0, 7)), 'single' => $classIds !== null && count($classIds) === 1,
+        ];
     }
 
     /** Jalankan migrasi aditif yang tertunda (khusus Super Admin). */

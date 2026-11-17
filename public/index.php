@@ -23,6 +23,8 @@ use App\Controllers\KioskController;
 use App\Controllers\MasterController;
 use App\Controllers\ScheduleController;
 use App\Controllers\SessionController;
+use App\Controllers\LeaveController;
+use App\Controllers\RecapController;
 use App\Controllers\SettingsController;
 use App\Controllers\SpeedController;
 use App\Controllers\StudentController;
@@ -144,6 +146,20 @@ $r->post('/admin/sesi/{id}/tutup', [SessionController::class, 'close']);
 $r->post('/admin/sesi/{id}/batal', [SessionController::class, 'cancel']);
 $r->post('/admin/sesi/{id}/buka', [SessionController::class, 'reopen']);
 $r->post('/admin/sesi/{id}/manual', [SessionController::class, 'manual']);
+$r->post('/admin/sesi/{id}/koreksi', [SessionController::class, 'correct']);
+
+// Izin/sakit/dispensasi dan rekap (Fase 5)
+$r->get('/admin/izin', [LeaveController::class, 'index']);
+$r->get('/admin/izin/baru', [LeaveController::class, 'create']);
+$r->post('/admin/izin', [LeaveController::class, 'store']);
+$r->post('/admin/izin/{id}/batal', [LeaveController::class, 'cancel']);
+$r->get('/admin/izin/{id}/lampiran', [LeaveController::class, 'attachment']);
+$r->get('/admin/rekap', [RecapController::class, 'index']);
+$r->get('/admin/rekap/kelas', [RecapController::class, 'pick']);
+$r->get('/admin/rekap/kelas/{id}', [RecapController::class, 'classRecap']);
+$r->get('/admin/rekap/siswa/{id}', [RecapController::class, 'student']);
+$r->get('/admin/rekap/sekolah', [RecapController::class, 'school']);
+$r->get('/admin/rekap/sekolah/semester', [RecapController::class, 'schoolSemester']);
 
 // Kiosk scanner (tanpa login; token perangkat tersimpan di browser kiosk)
 $r->get('/kiosk', [KioskController::class, 'index']);
