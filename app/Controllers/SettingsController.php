@@ -51,6 +51,9 @@ final class SettingsController extends Controller
         $user = $this->allow('settings');
         $d = [];
         foreach (Setting::DEFAULTS as $k => $default) {
+            if (in_array($k, Setting::SYSTEM_KEYS, true)) {
+                continue;
+            }
             $d[$k] = trim(input($k, $default));
         }
         $d['weekend_days'] = implode(',', array_map('intval', array_filter((array) ($_POST['weekend_days'] ?? []), 'is_numeric')));

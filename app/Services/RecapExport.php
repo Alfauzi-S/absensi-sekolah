@@ -11,7 +11,7 @@ use App\Models\Setting;
  */
 final class RecapExport
 {
-    private static function kop(string $title, string $sub): array
+    public static function kop(string $title, string $sub): array
     {
         $school = Setting::get('school_name') ?: t('Nama sekolah belum diisi');
         $addr = Setting::get('school_address');

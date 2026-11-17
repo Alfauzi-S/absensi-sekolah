@@ -3,6 +3,8 @@
 #   web : Nginx (image nginx:alpine terbaru) -> satu-satunya service yang mengekspos port ke host
 #   app : PHP 8.5 FPM (docker/php/Dockerfile) -> aplikasi
 #   db  : MariaDB 13.0 (GA terbaru), data tersimpan di volume bernama
+#   scheduler : image yang sama dengan app, menjalankan bin/scheduler.php (tiap 5 menit: tutup sesi,
+#               kirim WhatsApp, cadangan harian ke storage/backups). Pengganti cron.
 #
 # Port default 8090 (ubah APP_PORT di .env bila sudah dipakai).
 #
@@ -56,6 +58,29 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  scheduler:
+    image: absensi-sekolah-app
+    container_name: absensi_scheduler
+    restart: unless-stopped
+    # Berjalan sebagai www-data agar file cadangan bisa diunduh dari halaman Kesehatan Sistem.
+    user: "www-data"
+    command: ["php", "bin/scheduler.php"]
+    volumes:
+      - ./:/var/www/html
+    environment:
+      # config/config.php dibuat oleh container app; scheduler cukup memakainya.
+      APP_CONFIG_SYNC: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+      app:
+        condition: service_started
     logging:
       driver: json-file
       options:

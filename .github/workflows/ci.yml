@@ -44,6 +44,38 @@ jobs:
           extensions: mbstring, pdo_sqlite, gd, zip
       - run: bash tests/smoke.sh
 
+  restore:
+    name: Latihan pemulihan (SQLite ke MariaDB)
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_DATABASE: absensi
+          MARIADB_USER: absensi
+          MARIADB_PASSWORD: rahasia-ci
+          MARIADB_ROOT_PASSWORD: root-ci
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_sqlite, pdo_mysql, gd, zip
+      - name: Cadangan SQLite → pulihkan ke MariaDB → aplikasi jalan
+        env:
+          DRILL_TARGET: mysql
+          MYSQL_HOST: 127.0.0.1
+          MYSQL_PORT: '3306'
+          MYSQL_DB: absensi
+          MYSQL_USER: absensi
+          MYSQL_PASS: rahasia-ci
+          DAYS: '60'
+        run: bash tests/ops/restore-drill.sh
+
   docker:
     name: Build image
     runs-on: ubuntu-latest

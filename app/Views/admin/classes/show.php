@@ -1,5 +1,5 @@
 <div class="pagehead">
-  <div><h2><?= e($c['name']) ?> <?php if ($isHomeroom): ?><span class="bdg bdg-teal"><?= e(t('Anda wali kelas')) ?></span><?php endif; ?></h2><p><?= e(t('Tingkat :g · Wali kelas: :w · Ruangan: :r', ['g' => $c['grade'], 'w' => $c['homeroom_name'] ?: t('belum ada'), 'r' => $c['room_code'] ? $c['room_code'] . ' ' . $c['room_name'] : t('belum ada')])) ?></p></div>
+  <div><h2><?= e($c['name']) ?> <?php if ($isHomeroom): ?><span class="bdg bdg-teal"><?= e(t('Anda wali kelas')) ?></span><?php endif; ?><?php if (in_array((int) $c['id'], \App\Services\Pilot::config()['classes'], true)): ?> <a class="bdg bdg-navy" href="<?= e(url('admin/pilot/banding/' . $c['id'], ['tanggal' => today()])) ?>"><?= e(t('Kelas pilot · isi absen manual')) ?></a><?php endif; ?></h2><p><?= e(t('Tingkat :g · Wali kelas: :w · Ruangan: :r', ['g' => $c['grade'], 'w' => $c['homeroom_name'] ?: t('belum ada'), 'r' => $c['room_code'] ? $c['room_code'] . ' ' . $c['room_name'] : t('belum ada')])) ?></p></div>
   <?php if ($canManage): ?><div class="row">
     <a class="btn btn-outline" href="<?= e(url('admin/kelas/' . $c['id'] . '/ubah')) ?>"><?= icon('edit', 18) ?><?= e(t('Ubah')) ?></a>
     <a class="btn btn-outline" href="<?= e(url('admin/jadwal', ['kelas' => $c['id']])) ?>"><?= icon('calendar', 18) ?><?= e(t('Jadwal')) ?></a>

@@ -48,6 +48,41 @@ final class Database
         return self::$pdo = $pdo;
     }
 
+    /** Tutup koneksi (dipakai pemulihan cadangan SQLite sebelum mengganti file database). */
+    public static function disconnect(): void
+    {
+        self::$pdo = null;
+        self::$tables = [];
+        self::$columns = [];
+    }
+
+    /** @return string[] semua tabel aplikasi */
+    public static function tables(): array
+    {
+        $rows = self::driver() === 'sqlite'
+            ? self::all("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+            : self::all('SELECT table_name AS name FROM information_schema.tables WHERE table_schema = DATABASE() AND table_type = \'BASE TABLE\' ORDER BY table_name');
+        return array_column($rows, 'name');
+    }
+
+    /** @return string[] kolom satu tabel, berurutan */
+    public static function columns(string $table): array
+    {
+        if (self::driver() === 'sqlite') {
+            return array_column(self::all('PRAGMA table_info(' . self::ident($table) . ')'), 'name');
+        }
+        return array_column(self::all('SHOW COLUMNS FROM ' . self::ident($table)), 'Field');
+    }
+
+    /** Nama tabel/kolom yang aman untuk disisipkan ke SQL (hanya huruf, angka, garis bawah). */
+    public static function ident(string $name): string
+    {
+        if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $name)) {
+            throw new \InvalidArgumentException('Nama tidak valid: ' . $name);
+        }
+        return self::driver() === 'sqlite' ? '"' . $name . '"' : '`' . $name . '`';
+    }
+
     public static function driver(): string
     {
         return (string) config('db.driver', 'mysql');

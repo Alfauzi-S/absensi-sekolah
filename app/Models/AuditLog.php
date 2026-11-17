@@ -65,10 +65,15 @@ final class AuditLog
         'portal.login' => 'Orang tua masuk portal',
         'portal.login_failed' => 'Orang tua gagal masuk portal',
         'portal.denied' => 'Portal: akses data anak lain ditolak',
+        'backup.create' => 'Cadangan dibuat manual',
+        'backup.download' => 'Cadangan diunduh',
+        'pilot.update' => 'Pengaturan pilot diubah',
+        'pilot.manual' => 'Absen manual pilot diunggah',
+        'pilot.explain' => 'Penjelasan selisih pilot dicatat',
     ];
 
     public const GROUPS = ['' => 'Semua', 'access.' => 'Akses ditolak', 'auth.' => 'Login', 'account.' => 'Akun', 'settings.' => 'Pengaturan',
-        'student.' => 'Siswa', 'class.' => 'Kelas', 'schedule.' => 'Jadwal', 'master.' => 'Data master', 'year.' => 'Tahun ajaran', 'card.' => 'Kartu QR', 'device.' => 'Perangkat', 'session.' => 'Sesi', 'attendance.' => 'Kehadiran', 'notification.' => 'Notifikasi', 'portal.' => 'Portal orang tua'];
+        'student.' => 'Siswa', 'class.' => 'Kelas', 'schedule.' => 'Jadwal', 'master.' => 'Data master', 'year.' => 'Tahun ajaran', 'card.' => 'Kartu QR', 'device.' => 'Perangkat', 'session.' => 'Sesi', 'attendance.' => 'Kehadiran', 'notification.' => 'Notifikasi', 'portal.' => 'Portal orang tua', 'backup.' => 'Cadangan', 'pilot.' => 'Pilot'];
 
     public static function label(string $action): string
     {

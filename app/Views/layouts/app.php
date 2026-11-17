@@ -26,7 +26,10 @@ $nav = array_values(array_filter([
     can('accounts') ? ['devices', 'admin/perangkat', 'scan', 'Perangkat Scanner'] : null,
     can('accounts') ? ['speed', 'admin/kecepatan', 'chart', 'Kecepatan Scan'] : null,
     can('settings') ? ['notifications', 'admin/notifikasi', 'bell', 'Notifikasi WA'] : null,
+    can('settings') ? ['health', 'admin/kesehatan', 'power', 'Kesehatan Sistem'] : null,
     can('audit') ? ['audit', 'admin/audit', 'eye', 'Audit Log'] : null,
+    can('reports') ? ['pilot', 'admin/pilot', 'award', 'Pilot dan Go-live'] : null,
+    ['feedback', 'admin/masukan', 'send', 'Kirim Masukan'],
     ['settings', 'admin/pengaturan', 'sliders', 'Pengaturan'],
 ]));
 $bottomKeys = ['dashboard', 'sessions', 'classes', 'students'];

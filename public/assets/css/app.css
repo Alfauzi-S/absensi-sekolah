@@ -637,3 +637,16 @@ a.stat:hover{border-color:var(--cyan)}
 .portal-top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0 4px;padding-right:56px}
 .portal .card{margin:0}
 .center{text-align:center}
+/* Kesehatan sistem (Fase 7) */
+.hc-grid{display:grid;gap:16px;grid-template-columns:1fr;margin-bottom:16px}
+@media (min-width:760px){.hc-grid{grid-template-columns:repeat(2,1fr)}}
+@media (min-width:1200px){.hc-grid{grid-template-columns:repeat(3,1fr)}}
+.hc-grid .card{margin:0}
+.hc .card-h h3{display:flex;align-items:center;gap:8px}
+.hc-v{font-family:var(--f-display);font-size:24px;font-weight:700;margin:2px 0 4px}
+.hc-list{margin:6px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:2px}
+/* Pilot (Fase 7) */
+.row-diff td{background:var(--warn-bg)}
+.bad-t{color:var(--bad-ink)}
+.fb{border-bottom:1px dashed var(--border);padding:8px 0;display:flex;flex-direction:column;gap:4px}
+.fb:last-child{border-bottom:0}
