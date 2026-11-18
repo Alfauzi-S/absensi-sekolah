@@ -1,125 +1,93 @@
 <?php
-declare(strict_types=1);
 
 namespace App\Models;
 
-use App\Core\Database as DB;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 
-/**
- * Pengaturan sekolah yang dipilih pengurus (PRD 4.3). Disimpan sebagai pasangan kunci-nilai,
- * dibaca sekali per request dan di-cache.
- */
-final class Setting
+class Setting extends Model
 {
-    public const ATT_MODE_PERIOD = 'per_jam';
-    public const ATT_MODE_DAILY = 'masuk_pulang';
-    public const ATT_MODE_BOTH = 'keduanya';
+    protected $primaryKey = 'key';
 
-    public const ATT_MODES = [
-        self::ATT_MODE_DAILY => 'Masuk dan pulang',
-        self::ATT_MODE_PERIOD => 'Per jam pelajaran',
-        self::ATT_MODE_BOTH => 'Keduanya',
-    ];
+    public $incrementing = false;
 
-    public const SCANNER_MODES = ['usb' => 'Scanner USB/Bluetooth', 'camera' => 'Kamera', 'both' => 'Keduanya'];
-    public const WA_MODES = ['off' => 'Mati', 'alpa' => 'Hanya Alpa', 'terlambat' => 'Hanya Terlambat', 'both' => 'Alpa dan Terlambat'];
-    public const WA_PROVIDERS = ['sandbox' => 'Sandbox (uji, tidak benar-benar mengirim)', 'fonnte' => 'Fonnte', 'webhook' => 'Webhook JSON (gateway lain)'];
-    public const WA_TEMPLATE_ALPA = 'Assalamualaikum Bapak/Ibu, kami informasikan {nama} ({kelas}) tidak hadir tanpa keterangan (Alpa) pada {tanggal}. Mohon konfirmasi ke wali kelas. — {sekolah}';
-    public const WA_TEMPLATE_LATE = 'Assalamualaikum Bapak/Ibu, kami informasikan {nama} ({kelas}) terlambat {menit} menit pada {tanggal} (scan pukul {jam}). — {sekolah}';
+    protected $keyType = 'string';
 
-    /** Kunci yang diisi sistem/halaman lain, tidak ikut formulir Pengaturan Sekolah. */
-    public const SYSTEM_KEYS = ['backup_time', 'backup_last_at', 'backup_last_file', 'scheduler_last_at', 'scheduler_last_report', 'pilot_classes', 'pilot_from', 'pilot_to'];
+    public $timestamps = false;
 
-    /** Nilai bawaan; kunci yang tidak ada di sini tidak bisa disimpan. */
+    protected $fillable = ['key', 'value'];
+
     public const DEFAULTS = [
-        'school_name' => '',
-        'school_npsn' => '',
+        'school_name' => 'Nama Sekolah',
         'school_address' => '',
         'headmaster_name' => '',
-        'attendance_mode' => self::ATT_MODE_DAILY,
+        'headmaster_nip' => '',
         'checkin_start' => '06:00',
-        'checkin_end' => '07:30',
-        'late_after' => '07:00',
+        'late_after' => '07:10',
         'checkout_start' => '14:00',
-        'checkout_end' => '16:00',
-        'late_tolerance_minutes' => '10',
-        'scanner_mode' => 'both',
-        'wa_notify' => 'off',
-        'wa_gateway_url' => '',
-        'wa_gateway_token' => '',
-        'wa_provider' => 'sandbox',
-        'wa_template_alpa' => self::WA_TEMPLATE_ALPA,
-        'wa_template_late' => self::WA_TEMPLATE_LATE,
-        'portal_enabled' => '0',
+        'checkout_end' => '17:00',
         'weekend_days' => '6,7',
-        // Dicatat sistem (bukan isian formulir): jadwal cadangan dan detak penjadwal untuk halaman Kesehatan Sistem
-        'backup_time' => '01:30',
-        'backup_last_at' => '',
-        'backup_last_file' => '',
-        'scheduler_last_at' => '',
-        'scheduler_last_report' => '',
-        'pilot_classes' => '',
-        'pilot_from' => '',
-        'pilot_to' => '',
+        'kiosk_token' => '',
+        // Absensi per jam pelajaran: off | manual (guru mengisi) | qr (guru mengisi + memindai kartu dengan kamera)
+        'lesson_mode' => 'manual',
+        // Siapa yang boleh mengabsen per jam: all (semua guru, semua kelas) | homeroom (hanya wali kelas di kelasnya)
+        'lesson_access' => 'all',
     ];
+
+    public const LESSON_MODES = ['off' => 'Mati', 'manual' => 'Diisi guru', 'qr' => 'Diisi guru + scan kartu'];
+
+    public const LESSON_ACCESS = ['all' => 'Semua guru, semua kelas', 'homeroom' => 'Hanya wali kelas, di kelasnya'];
+
+    public static function lessonsEnabled(): bool
+    {
+        return self::get('lesson_mode') !== 'off';
+    }
 
     private static ?array $cache = null;
 
-    public static function all(): array
+    public static function allValues(): array
     {
-        if (self::$cache !== null) {
-            return self::$cache;
-        }
-        $rows = DB::tableExists('settings') ? DB::all('SELECT skey, svalue FROM settings') : [];
-        $out = self::DEFAULTS;
-        foreach ($rows as $r) {
-            if (array_key_exists($r['skey'], self::DEFAULTS)) {
-                $out[$r['skey']] = (string) $r['svalue'];
+        if (self::$cache === null) {
+            self::$cache = self::DEFAULTS;
+            foreach (static::query()->get() as $row) {
+                self::$cache[$row->key] = (string) $row->value;
             }
         }
-        return self::$cache = $out;
+
+        return self::$cache;
     }
 
-    public static function get(string $key, ?string $default = null): string
+    public static function get(string $key): string
     {
-        return self::all()[$key] ?? ($default ?? (self::DEFAULTS[$key] ?? ''));
+        return (string) (self::allValues()[$key] ?? '');
     }
 
-    public static function int(string $key): int
+    public static function put(string $key, ?string $value): void
     {
-        return (int) self::get($key);
+        static::query()->updateOrInsert(['key' => $key], ['value' => $value]);
+        self::$cache = null;
     }
 
-    /** @return int[] hari libur mingguan (ISO 1–7) */
+    public static function flush(): void
+    {
+        self::$cache = null;
+    }
+
+    /** Token tautan kiosk; dibuat otomatis saat pertama kali diminta. */
+    public static function kioskToken(): string
+    {
+        $token = self::get('kiosk_token');
+        if ($token === '') {
+            $token = Str::random(32);
+            self::put('kiosk_token', $token);
+        }
+
+        return $token;
+    }
+
+    /** @return int[] hari libur mingguan, 1 = Senin ... 7 = Minggu */
     public static function weekendDays(): array
     {
-        return array_values(array_filter(array_map('intval', explode(',', self::get('weekend_days'))), static fn (int $d) => $d >= 1 && $d <= 7));
-    }
-
-    public static function set(string $key, string $value): void
-    {
-        if (!array_key_exists($key, self::DEFAULTS)) {
-            throw new \InvalidArgumentException('Pengaturan tidak dikenal: ' . $key);
-        }
-        $exists = DB::value('SELECT skey FROM settings WHERE skey = ?', [$key]);
-        if ($exists) {
-            DB::update('settings', ['svalue' => $value, 'updated_at' => now()], 'skey = ?', [$key]);
-        } else {
-            DB::insert('settings', ['skey' => $key, 'svalue' => $value, 'updated_at' => now()]);
-        }
-        self::$cache = null;
-    }
-
-    /** @param array<string,string> $values */
-    public static function setMany(array $values): void
-    {
-        foreach ($values as $k => $v) {
-            self::set($k, $v);
-        }
-    }
-
-    public static function forget(): void
-    {
-        self::$cache = null;
+        return array_values(array_filter(array_map('intval', explode(',', self::get('weekend_days')))));
     }
 }

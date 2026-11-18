@@ -76,17 +76,16 @@ final class Xlsx
         $zip->close();
     }
 
-    public function download(string $filename): never
+    /** Unduh sebagai respons Laravel; file sementara dihapus setelah dikirim. */
+    public function download(string $filename): \Symfony\Component\HttpFoundation\BinaryFileResponse
     {
         $tmp = tempnam(sys_get_temp_dir(), 'xlsx');
         $this->save($tmp);
-        header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-        header('Content-Disposition: attachment; filename="' . str_replace('"', '', $filename) . '"');
-        header('Cache-Control: no-store');
-        header('Content-Length: ' . (string) filesize($tmp));
-        readfile($tmp);
-        @unlink($tmp);
-        exit;
+
+        return response()->download($tmp, $filename, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Cache-Control' => 'no-store',
+        ])->deleteFileAfterSend();
     }
 
     private function sheetXml(array $sh): string

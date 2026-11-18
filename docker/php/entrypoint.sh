@@ -1,20 +1,29 @@
 #!/bin/sh
-# Entrypoint container "app" (PHP-FPM).
+# Entrypoint container "app" dan "scheduler".
 set -eu
+cd /var/www/html
 
-APP_DIR="${APP_DIR:-/var/www/html}"
+# 1. Folder runtime di volume storage harus bisa ditulis www-data.
+mkdir -p storage/app/private storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs
+chown -R www-data:www-data storage bootstrap/cache 2>/dev/null || true
 
-# 1. Konfigurasi aplikasi dari environment (.env -> docker-compose -> di sini).
-#    Set APP_CONFIG_SYNC=false kalau ingin config/config.php diatur manual.
-if [ "${APP_CONFIG_SYNC:-true}" = "true" ]; then
-    php /usr/local/bin/generate-config.php
-else
-    echo "[entrypoint] APP_CONFIG_SYNC=false, config/config.php dibiarkan apa adanya"
+# 2. APP_KEY: bila tidak diisi di .env, dibuat sekali dan disimpan di volume storage.
+if [ -z "${APP_KEY:-}" ]; then
+    if [ ! -s storage/app/.app_key ]; then
+        echo "base64:$(head -c 32 /dev/urandom | base64)" > storage/app/.app_key
+        chown www-data:www-data storage/app/.app_key
+        chmod 600 storage/app/.app_key
+    fi
+    APP_KEY="$(cat storage/app/.app_key)"
+    export APP_KEY
 fi
 
-# 2. Pastikan folder runtime bisa ditulis PHP-FPM (www-data).
-mkdir -p "$APP_DIR/storage/logs" "$APP_DIR/storage/sessions"
-chown -R www-data:www-data "$APP_DIR/storage" 2>/dev/null || true
+# 3. Hanya container "app": migrasi database, pindahkan data versi lama (sekali), cache konfigurasi.
+if [ "${RUN_SETUP:-true}" = "true" ]; then
+    php artisan migrate --force
+    php artisan absensi:impor-lama
+    php artisan optimize
+    chown -R www-data:www-data storage bootstrap/cache 2>/dev/null || true
+fi
 
-# 3. Jalankan php-fpm (master sebagai root, worker otomatis turun ke www-data).
 exec "$@"
